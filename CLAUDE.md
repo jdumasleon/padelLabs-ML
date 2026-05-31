@@ -8,6 +8,12 @@ the training set, and bumping the stroke classifier to a new version.
 > **Read this first.** When the user says "prepare this session for labeling",
 > "train the next version", or similar, follow the stage that matches and do not
 > invent steps. Every script below already exists — do not rewrite them.
+>
+> **For "what's next" / the v6 plan, read `V6_ROADMAP.md`** — it captures the current
+> shipped state (v5 RF on Firebase), the full investigation conclusions (player diversity
+> is the blocker; RF is at its order-invariant ceiling; the temporal CNN overfits at 6
+> players), the recording enrichment shipped (gravity+quaternion columns), and the exact
+> step-by-step playbook + tooling/venv gotchas to execute once more players are collected.
 
 ---
 
