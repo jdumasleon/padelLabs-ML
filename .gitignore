@@ -1,0 +1,105 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Xcode user state
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.moved-aside
+DerivedData/
+
+# Xcode build products
+build/
+Build/
+*.xcarchive
+*.xcresult
+*.dSYM
+*.dSYM.zip
+*.ipa
+*.app
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+
+# Keep dependency pins tracked
+!Package.resolved
+!**/Package.resolved
+
+# CocoaPods
+Pods/
+*.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+
+# Carthage
+Carthage/Build/
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+
+# Code coverage and profiling
+*.profraw
+*.profdata
+coverage/
+*.xccovreport
+*.xccovarchive
+
+# Playgrounds
+timeline.xctimeline
+playground.xcworkspace
+
+# Local environment and secrets
+.env
+.env.*
+*.local
+*.xcconfig.local
+GoogleService-Info.local.plist
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*.lock
+
+# Generated dependency caches
+.netrc
+.bundle/
+vendor/bundle/
+
+# ML data dirs
+/label-studio-data
+/labeled-strokes
+/labeled-strokes.bak-20260531-014603
+/labeled-strokes.bak-*
+
+# Python virtual environments (biggest: torch 237M, grpc 37M, etc.)
+padel-ml/
+padel-ml-eval/
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+
+# Large model artifacts (.mlmodel up to 23M, torch .pt, .mlproj checkpoints)
+*.mlmodel
+*.mlproj/
+*.pt
+/models
+
+# Backups
+*.bak
+*.bak-*
+
+# Raw / reviewed data dumps
+/raw-sessions
+reviewed in QC/
+label-studio-import.json

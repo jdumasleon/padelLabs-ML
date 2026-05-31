@@ -1,0 +1,10 @@
+playerId,displayName,handedness,watchWrist,skillLevel,age,sex,watchModel,sessionCount,strokeCount,notes
+p001,,right,left,intermediate,,,,,0,
+863A5EC0-8729-496E-9645-2764E5BDACAA,Irene,right,right,intermediate,,,,0,0,Patched 2026-05-15: was sharing playerId 3FF5CBC3 with Ela (single-account workflow during recording).
+5E354AD0-50F2-4EC7-B653-1FB9989DC793,Diego,right,right,intermediate,,,,0,0,Patched 2026-05-15: was sharing playerId E168B6E8 with Jose (single-account workflow during recording).
+14A0FF96-6B40-423D-ADB2-D94E8AD96EF6,Victor,right,right,intermediate,,,,0,0,Patched 2026-05-15: was sharing playerId E168B6E8 with Jose (single-account workflow during recording).
+1880202A-848B-444A-886C-B771B2D18998,Guillermo,left,left,intermediate,,,,0,0,Patched 2026-05-15: was sharing playerId E168B6E8 with Jose (single-account workflow during recording).
+1DC25578-923C-4EFE-9717-237E45B71EDE,Carlos,right,right,intermediate,,,,0,0,Patched 2026-05-25: was sharing playerId E168B6E8 with Jose (recorded on Jose's watch/phone). 2 sessions: 66FE0AB7 + 88A8B408.
+20A80EF6-375D-4FCE-AB9B-BAFCBF1A03A6,Enrique,right,right,intermediate,,,,0,0,Patched 2026-05-25: was sharing playerId E168B6E8 with Jose (recorded on Jose's watch/phone). 1 session: 5F78E0C4.
+4812651B-BFD4-4D4C-A03B-5BE88DE33AF7,Javier,right,right,intermediate,,,,0,0,Registered 2026-05-25. Distinct ID (not a Jose collision). 1 session: 65DCD26B.
+62B73338-18A2-4C13-AE72-061AE70AB95C,Jorge,right,right,intermediate,,,,0,0,Patched 2026-05-29: was sharing playerId 553E3AE9 with another account (single-watch workflow). 1 session: 7896B489.
