@@ -158,6 +158,8 @@ def main():
     ap.add_argument("--aug-warp", type=float, default=None, help="time-warp strength (default 0.1)")
     ap.add_argument("--aug-shift", type=int, default=None, help="max time-shift samples (default 5)")
     ap.add_argument("--aug-jitter", type=float, default=None, help="noise σ × channel std (default 0.03)")
+    ap.add_argument("--init", type=str, default=None,
+                    help="SSL encoder checkpoint (models/cnn/ssl_encoder_gravity.pt) to init the conv trunk")
     args = ap.parse_args()
 
     defaults = {"aug_gtilt": 7.0, "aug_scale": 0.2, "aug_warp": 0.1, "aug_shift": 5, "aug_jitter": 0.03}
@@ -210,6 +212,16 @@ def main():
         def forward(s, x): return s.net(x)
 
     model = CNN().to(dev)
+    if args.init:
+        ck_path = Path(args.init)
+        if not ck_path.exists():
+            ck_path = ML_DIR / "models" / "cnn" / args.init
+        ck = torch.load(ck_path, map_location="cpu")
+        assert ck.get("channels") == G_CHANNELS, f"encoder rep mismatch: {ck.get('rep')}"
+        missing, unexpected = model.net.load_state_dict(ck["trunk"], strict=False)
+        loaded = len(ck["trunk"])
+        print(f"init: loaded {loaded} trunk tensors from {ck_path.name} "
+              f"(pretrained on {ck.get('n_unlabeled')} unlabeled windows)")
     opt = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
     lossf = nn.CrossEntropyLoss(weight=w)
 
@@ -255,7 +267,8 @@ def main():
 
     out = ML_DIR / "models" / "cnn"
     out.mkdir(parents=True, exist_ok=True)
-    fname = "cnn_gravity_aug.pt" if aug_on else "cnn_gravity.pt"
+    fname = ("cnn_gravity_ssl.pt" if args.init else "cnn_gravity.pt") if not aug_on \
+        else ("cnn_gravity_ssl_aug.pt" if args.init else "cnn_gravity_aug.pt")
     aug_cfg = {k: getattr(args, k) for k in defaults}
     import torch as _t
     _t.save({"state": best_state, "mu": mu, "sd": sd, "classes": CLASSES,
