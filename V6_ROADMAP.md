@@ -27,6 +27,7 @@ Held-out (player-independent) accuracy on brand-new players is ~37% (RF). Everyt
 | Temporal 1D-CNN (raw) | val 69% / test 8.6% | overfits — 6 training players |
 | CNN + gravity-relative | val 67% / test 26.7% | helped lefty (5→29) but still overfits |
 | CNN + contact-aligned | val 71% / test 9.7% | alignment fixed (93%+) but still overfits |
+| **CNN + IMU augmentation** (2026-07-11) | val 68.8% / **test 16.3%** | rot±15° + scale±20% + time-warp + shift±5 + jitter, per-epoch (`train_cnn.py --aug`). ~2× the raw-CNN test (8.6→16.3); Guillermo LH 5→14, Diego 20→24. Same-seed 160-epoch A/B; logs `models/cnn/{baseline,aug}_160.log`. Confirms overfit-reduction lever — stack with gravity-frame + contact alignment for v6. |
 | RF + gravity/world-frame (3 variants) | 26-30% (worse than 37.5) | RF is order-invariant → normalization only loses signal |
 | RF + re-centering | worse | same — RF ignores temporal position |
 
