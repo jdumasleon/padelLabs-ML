@@ -14,6 +14,11 @@ the training set, and bumping the stroke classifier to a new version.
 > is the blocker; RF is at its order-invariant ceiling; the temporal CNN overfits at 6
 > players), the recording enrichment shipped (gravity+quaternion columns), and the exact
 > step-by-step playbook + tooling/venv gotchas to execute once more players are collected.
+>
+> **2026-07-11 sweep (see the roadmap table):** IMU augmentation (~2× raw CNN),
+> gravity+aug (no stack), SSL pretraining (null — unlabeled pool has no new players)
+> all tested with a multi-seed protocol. CNN plateau ≈ 19–20% vs RF 37.5% on unseen
+> players — model-side levers are exhausted at this corpus; collect players next.
 
 ---
 
@@ -33,6 +38,10 @@ PadelLabs-ML/
 │   └── evaluation_report.md living log of per-version evaluation
 ├── raw-sessions/            raw DataCollection dumps (mirror of /DataCollection/)
 ├── reviewed in QC/          sessions that passed the video-validation QC step
+├── labeling-tool/           version-controlled snapshot of the sibling web tool
+│                            (working copy = /labeling-tool/; sync via cp, see its README)
+├── ssl-cache/               harvested unlabeled windows for SSL pretraining
+│                            (gitignored, 183MB — regenerate: ssl_pretrain.py --reharvest)
 └── label-studio-data/       optional Label Studio tasks (legacy, not primary path)
 ```
 
@@ -115,12 +124,23 @@ support it (generate files, explain steps) but never auto-validate.
 2. Loads the session folder (drag-drop or File System Access API) — the tool
    auto-pairs the JSON + `_classified.csv`.
 3. Loads the matching video from `labeling-tool/videos/<Player>/<clip>.MOV`.
-4. Clicks **Validate** → walks through every stroke:
+4. Clicks **Validate**, then **⚡ Auto-accept** (active-learning triage):
+   every pending prediction with `confidence ≥ 0.85` AND `top1 − top2 ≥ 0.30`
+   is marked `correct` automatically (thresholds tunable inline; one-click
+   **↩ Undo auto**; a human verdict always overrides an auto one). Cuts a
+   ~800-stroke session to ~200 manual reviews — and the remaining queue is
+   exactly the low-confidence lob/vibora/bandeja cases the model needs most.
+5. Walks through the remaining strokes:
    - Tool seeks video to `timestamp_s - 0.5s`
    - Shows top-3 predictions with confidence bars
    - User marks `correct` / `wrong` (+ picks true label) / `skip` / `duplicate`
-5. User clicks **Export** → tool saves `<sessionId>_validation.csv` back to the
-   session folder.
+6. User clicks **Export** → tool saves `<sessionId>_validation.csv` back to the
+   session folder. The CSV carries a trailing `review_mode` column
+   (`auto`/`manual`) for provenance; `apply_validation.py` reads columns by
+   name and is unaffected.
+
+> First-time calibration: on the first session using auto-accept, spot-check
+> ~20 auto-accepted rows before trusting the thresholds at scale.
 
 **Reference implementation in the wild**: the Jose 21 April session under
 `/DataCollection/Jose full sessions strokes/21 April/` is the canonical example
@@ -297,6 +317,9 @@ for the full end-to-end story including Firebase wiring.
 | `split_sessions.py` | 3/5 | Greedy session-level split rebalance of `labeled-strokes/` |
 | `apply_validation.py` | 3 | Apply `_validation.csv` verdicts onto JSON markers (correct→top1, wrong→corrected_label, skip/dup/unreviewed→unknown); backs up `*.json.orig`. **Fills the §10 gap.** |
 | `retrain.py` | 4 | Train RF from `train/` + export `.mlmodel` + versioned JSON. **Run via `padel-ml` venv (sklearn ≤1.5.1) — global py3.14/sklearn1.8 can't export CoreML.** |
+| `train_cnn.py` | 5 (exp) | Temporal 1D-CNN baseline on raw 100×9 windows. `--aug` adds per-epoch IMU augmentation (rot±15°, scale±20%, time-warp, shift±5, jitter) — ~2× held-out vs no-aug. **padel-ml-eval venv.** |
+| `train_cnn_gravity_aug.py` | 5 (exp) | Gravity-relative 8-channel CNN (batched port of `prototype_gravity.py`). `--aug` = gravity-adapted set (g-tilt±7° replaces rotation — device rotation is a no-op in this rep). `--init <ssl_encoder>.pt` loads an SSL-pretrained trunk. **Evaluate multi-seed (mean ± std); single-run deltas < ~5 pts are noise.** padel-ml-eval venv. |
+| `ssl_pretrain.py` | 5 (exp) | Masked-reconstruction pretraining of the CNN trunk on unlabeled sliding windows harvested from TRAIN players' raw sessions (val/test players excluded; cache in `ssl-cache/`, `--reharvest` to rebuild). Null result at 6 train players (no new breadth) — **re-run when raw sessions from NEW players exist.** padel-ml-eval venv. |
 | `evaluate.py` | 5 | Evaluate a model on `test/` (legacy; pickle loader; stale class list — prefer `evaluate_cv.py`) |
 | `evaluate_cv.py` | 5 | Three-way CV (stratified / session / player GroupKFold). **OVERWRITES `evaluation_report.md` — copy it first.** |
 | `train_createml.swift` | 5 (alt) | Create ML Activity Classifier training without Xcode |
