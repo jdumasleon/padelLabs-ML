@@ -1,0 +1,2477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PadelLabs · Session Labeling</title>
+<style>
+/* ── Tokens ─────────────────────────────────── */
+:root {
+  --bg:         #07070f;
+  --s0:         #0f0f1c;
+  --s1:         #161627;
+  --s2:         #1e1e34;
+  --s3:         #26263f;
+  --b0:         rgba(255,255,255,0.06);
+  --b1:         rgba(255,255,255,0.12);
+  --primary:    #6C8BFF;
+  --pdim:       rgba(108,139,255,0.13);
+  --phi:        rgba(108,139,255,0.22);
+  --warn:       #FFA94D;
+  --wdim:       rgba(255,169,77,0.13);
+  --ok:         #4CAF88;
+  --danger:     #FF6B6B;
+  --text:       #e4e4f0;
+  --dim:        #7878a0;
+  --faint:      #3d3d5a;
+  --r:          10px;
+  --rs:         6px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display','Segoe UI',sans-serif;
+  background:var(--bg);color:var(--text);display:flex;flex-direction:column;font-size:13px}
+
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--s2);border-radius:2px}
+
+/* ── Topbar ─────────────────────────────────── */
+.topbar{
+  display:flex;align-items:center;gap:10px;
+  padding:0 14px;height:46px;flex-shrink:0;
+  background:var(--s0);border-bottom:1px solid var(--b0);z-index:20;
+}
+.logo{display:flex;align-items:center;gap:7px;font-weight:700;font-size:14px;white-space:nowrap}
+.logo-mark{width:24px;height:24px;border-radius:6px;
+  background:linear-gradient(135deg,#6C8BFF,#a78bfa);
+  display:flex;align-items:center;justify-content:center;font-size:12px}
+.sep{color:var(--faint);font-weight:300}
+.session-pill{font-size:11px;color:var(--dim);background:var(--s1);
+  padding:2px 9px;border-radius:20px;border:1px solid var(--b0);
+  white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.gap{flex:1}
+.kbd{font-size:10px;color:var(--faint);background:var(--s1);
+  border:1px solid var(--b0);border-radius:3px;padding:1px 4px;font-family:monospace}
+.hints{display:none;align-items:center;gap:5px;white-space:nowrap}
+.hints span{color:var(--faint);font-size:11px}
+.btn{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--b0);
+  border-radius:var(--rs);background:var(--s1);color:var(--text);
+  padding:4px 11px;font-size:12px;cursor:pointer;transition:background .13s,border-color .13s;
+  white-space:nowrap;font-family:inherit}
+.btn:hover{background:var(--s2);border-color:var(--b1)}
+.btn.primary{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
+.btn.primary:hover{opacity:.87}
+.btn:disabled{opacity:.35;cursor:default;pointer-events:none}
+.icon-btn{padding:4px 7px;font-size:14px;background:transparent;border-color:transparent}
+.icon-btn:hover{background:var(--s2);border-color:var(--b0)}
+
+/* ── Layout ─────────────────────────────────── */
+.layout{display:flex;flex:1;overflow:hidden}
+
+/* ── Sidebar ────────────────────────────────── */
+.sidebar{
+  width:248px;flex-shrink:0;display:flex;flex-direction:column;
+  background:var(--s0);border-right:1px solid var(--b0);
+  transition:width .22s ease,opacity .22s ease;overflow:hidden;
+}
+.sidebar.collapsed{width:0;opacity:0;pointer-events:none}
+
+.sb-header{
+  display:flex;align-items:center;gap:6px;
+  padding:9px 10px;border-bottom:1px solid var(--b0);flex-shrink:0;
+}
+.sb-title{font-size:11px;font-weight:600;color:var(--dim);
+  text-transform:uppercase;letter-spacing:.5px;flex:1;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.sb-actions{display:flex;gap:3px}
+
+.sb-body{flex:1;overflow-y:auto;padding:4px 0}
+
+/* Empty / loading states */
+.sb-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:12px;padding:32px 20px;text-align:center}
+.sb-empty .em{font-size:28px;opacity:.3}
+.sb-empty p{font-size:12px;color:var(--dim);line-height:1.6}
+
+/* Player group */
+.player-group{border-bottom:1px solid var(--b0)}
+.player-toggle{
+  display:flex;align-items:center;gap:6px;width:100%;
+  padding:7px 10px;background:none;border:none;color:var(--text);
+  font-size:12px;font-weight:600;cursor:pointer;text-align:left;
+  font-family:inherit;transition:background .1s;
+}
+.player-toggle:hover{background:var(--s1)}
+.player-arrow{font-size:9px;color:var(--dim);transition:transform .18s;flex-shrink:0}
+.player-toggle.open .player-arrow{transform:rotate(90deg)}
+.player-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.player-count{font-size:10px;color:var(--faint);background:var(--s2);
+  padding:1px 6px;border-radius:10px;flex-shrink:0}
+
+.session-list{display:none;padding:2px 0 4px}
+.player-group.open .session-list{display:block}
+
+/* Session node */
+.session-node{
+  display:flex;align-items:flex-start;gap:7px;
+  padding:6px 10px 6px 22px;cursor:pointer;
+  transition:background .1s;position:relative;
+}
+.session-node:hover{background:var(--s1)}
+.session-node.active{background:var(--pdim)}
+.session-node.active::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;
+  width:2px;background:var(--primary);border-radius:0 1px 1px 0;
+}
+.sn-dot{
+  width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:3px;
+}
+.sn-dot.full{background:var(--warn)}
+.sn-dot.drill{background:var(--primary)}
+.sn-info{flex:1;min-width:0}
+.sn-date{font-size:11px;font-weight:500;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sn-meta{font-size:10px;color:var(--dim);margin-top:1px;
+  display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.sn-badge{
+  font-size:9px;padding:1px 5px;border-radius:3px;font-weight:500;
+}
+.sn-badge.markers{background:var(--s2);color:var(--dim)}
+.sn-badge.nocsv{background:rgba(255,107,107,.13);color:var(--danger)}
+.sn-badge.video{background:rgba(76,175,136,.1);color:var(--ok)}
+.sn-badge.draft{background:var(--pdim);color:var(--primary)}
+.sn-badge.unlabeled{background:var(--wdim);color:var(--warn)}
+/* Recording quality */
+.sn-badge.rq-ok{background:rgba(76,175,136,.12);color:var(--ok)}
+.sn-badge.rq-warn{background:rgba(255,169,77,.13);color:var(--warn)}
+.sn-badge.rq-bad{background:rgba(255,107,107,.13);color:var(--danger)}
+
+/* ── Center panel ───────────────────────────── */
+.center{display:flex;flex-direction:column;flex:1;overflow:hidden;
+  border-right:1px solid var(--b0);min-width:0}
+
+.video-wrap{
+  position:relative;background:#000;
+  /* Takes all remaining space after the fixed-height IMU panel */
+  flex:1;min-height:0;overflow:hidden;
+  display:flex;flex-direction:column;
+}
+.video-ph{
+  flex:1;min-height:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  background:var(--s1);cursor:pointer;border-bottom:1px solid var(--b0);transition:background .13s;
+}
+.video-ph:hover{background:var(--s2)}
+.video-ph .ph-icon{font-size:38px;opacity:.22}
+.video-ph p{color:var(--dim);font-size:12px}
+#videoEl{display:none;width:100%;height:100%;object-fit:contain;background:#000;flex:1;min-height:0}
+.vid-badge{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.6);
+  backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.1);
+  border-radius:20px;padding:3px 9px;font-size:10px;color:var(--dim);display:none}
+
+/* ── Video controls ─────────────────────────── */
+.vid-controls{
+  background:var(--s0);border-bottom:1px solid var(--b0);
+  padding:7px 12px 8px;display:flex;flex-direction:column;
+  gap:7px;flex-shrink:0;
+}
+.progress-wrap{
+  position:relative;height:4px;background:var(--s2);
+  border-radius:2px;cursor:pointer;
+}
+.progress-wrap:hover{height:6px;margin-top:-1px}
+.progress-buf{
+  position:absolute;left:0;top:0;bottom:0;
+  background:var(--s3);border-radius:2px;pointer-events:none;
+}
+.progress-fill{
+  position:absolute;left:0;top:0;bottom:0;
+  background:var(--primary);border-radius:2px;pointer-events:none;
+}
+.progress-thumb{
+  position:absolute;top:50%;width:11px;height:11px;
+  background:#fff;border-radius:50%;
+  transform:translate(-50%,-50%) scale(0);
+  pointer-events:none;transition:transform .12s;
+  box-shadow:0 1px 4px rgba(0,0,0,.5);
+}
+.progress-wrap:hover .progress-thumb{transform:translate(-50%,-50%) scale(1)}
+.ctrl-row{display:flex;align-items:center;gap:2px}
+.ctrl-btn{
+  background:transparent;border:none;color:var(--dim);
+  cursor:pointer;padding:4px 7px;border-radius:5px;font-size:13px;
+  line-height:1;transition:background .1s,color .1s;font-family:inherit;
+}
+.ctrl-btn:hover{background:var(--s2);color:var(--text)}
+.ctrl-btn:disabled{opacity:.3;cursor:default}
+.ctrl-play{
+  font-size:16px;padding:4px 10px;
+  background:var(--pdim);color:var(--primary);
+}
+.ctrl-play:hover{background:var(--phi);color:var(--primary)}
+.ctrl-gap{flex:1}
+.ctrl-time{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ctrl-speed{
+  background:var(--s1);border:1px solid var(--b0);border-radius:4px;
+  color:var(--dim);font-size:11px;padding:2px 5px;cursor:pointer;outline:none;
+  font-family:inherit;
+}
+.ctrl-speed:focus{border-color:var(--primary)}
+
+.sync-bar{display:flex;align-items:center;gap:8px;padding:7px 12px;
+  background:var(--s0);border-bottom:1px solid var(--b0);flex-shrink:0}
+.sync-bar label{font-size:11px;color:var(--dim);white-space:nowrap}
+#syncSlider{flex:1;accent-color:var(--primary);cursor:pointer;height:2px}
+.sync-val{font-size:12px;font-weight:700;color:var(--primary);
+  min-width:52px;text-align:center;font-variant-numeric:tabular-nums}
+.time-disp{font-size:11px;color:var(--dim);font-variant-numeric:tabular-nums;
+  white-space:nowrap;min-width:170px;text-align:right}
+.sync-bar .btn{padding:3px 8px;font-size:11px}
+
+.tl-resize-handle{
+  height:5px;flex-shrink:0;cursor:ns-resize;background:transparent;
+  border-top:2px solid var(--b0);transition:border-color .15s;
+}
+.tl-resize-handle:hover{border-color:var(--primary)}
+.tl-wrap{display:flex;flex-direction:column;padding:9px 12px 8px;gap:6px;
+  overflow:hidden;flex-shrink:0;}
+.tl-hdr{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.tl-title{font-size:10px;font-weight:600;color:var(--dim);text-transform:uppercase;
+  letter-spacing:.5px;flex:1}
+.tl-hint{font-size:10px;color:var(--faint)}
+.zoom-row{display:flex;gap:3px}
+.zoom-btn{width:22px;height:22px;border:1px solid var(--b0);border-radius:4px;
+  background:var(--s1);color:var(--dim);font-size:13px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transition:background .1s}
+.zoom-btn:hover{background:var(--s2);color:var(--text)}
+.canvas-wrap{flex:1;position:relative;border:1px solid var(--b0);border-radius:var(--rs) var(--rs) 0 0;
+  overflow:hidden;background:var(--s1);cursor:crosshair;min-height:40px}
+#tl{position:absolute;inset:0;width:100%;height:100%}
+.tl-empty{position:absolute;inset:0;display:flex;align-items:center;
+  justify-content:center;font-size:12px;color:var(--faint);pointer-events:none}
+/* Horizontal scroll track sits flush under the canvas */
+.tl-scroll-wrap{
+  overflow-x:scroll;overflow-y:hidden;
+  height:10px;flex-shrink:0;
+  border:1px solid var(--b0);border-top:none;
+  border-radius:0 0 var(--rs) var(--rs);
+  background:var(--s1);
+}
+.tl-scroll-wrap::-webkit-scrollbar{height:10px}
+.tl-scroll-wrap::-webkit-scrollbar-track{background:var(--s1);border-radius:0 0 var(--rs) var(--rs)}
+.tl-scroll-wrap::-webkit-scrollbar-thumb{background:var(--s2);border-radius:5px;border:2px solid var(--s1)}
+.tl-scroll-wrap::-webkit-scrollbar-thumb:hover{background:var(--primary)}
+#tlScrollInner{height:1px;min-width:100%}
+
+/* ── Right panel ────────────────────────────── */
+.right{width:368px;flex-shrink:0;display:flex;flex-direction:column;
+  overflow:hidden;background:var(--s0)}
+
+/* Drop screen */
+#dropScreen{flex:1;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:18px;padding:28px}
+#dropScreen h2{font-size:16px;font-weight:600;text-align:center}
+#dropScreen p{font-size:12px;color:var(--dim);text-align:center;line-height:1.7}
+.drop-zone{width:100%;max-width:280px;border:2px dashed var(--b1);border-radius:var(--r);
+  padding:24px 16px;text-align:center;cursor:pointer;
+  transition:border-color .14s,background .14s;background:var(--s1)}
+.drop-zone:hover,.drop-zone.over{border-color:var(--primary);background:var(--pdim)}
+.drop-zone .dz-icon{font-size:24px;margin-bottom:5px}
+.drop-zone p{font-size:12px;color:var(--dim);line-height:1.6}
+.file-cards{display:flex;gap:7px;width:100%;max-width:280px}
+.file-card{flex:1;background:var(--s1);border:1px solid var(--b0);border-radius:var(--rs);
+  padding:10px 6px;text-align:center;cursor:pointer;
+  transition:background .13s,border-color .13s}
+.file-card:hover{background:var(--s2);border-color:var(--b1)}
+.file-card.ok{border-color:var(--ok);background:rgba(76,175,136,.07)}
+.file-card .fc-icon{font-size:16px;margin-bottom:2px}
+.file-card .fc-lbl{font-size:10px;color:var(--dim)}
+.file-card .fc-ok{font-size:10px;color:var(--ok);margin-top:1px}
+
+/* markers panel */
+#markersPanel{flex:1;display:none;flex-direction:column;overflow:hidden}
+
+.meta-bar{display:flex;flex-direction:column;gap:5px;padding:7px 10px;
+  background:var(--s1);border-bottom:1px solid var(--b0);flex-shrink:0}
+.meta-chips{display:flex;flex-wrap:wrap;gap:5px 12px}
+.meta-item{font-size:10px;color:var(--dim)}
+.meta-item strong{color:var(--text)}
+.meta-strokes{display:flex;flex-wrap:wrap;gap:4px;padding-top:2px;border-top:1px solid var(--b0)}
+.stroke-chip{
+  display:inline-flex;align-items:center;gap:3px;
+  font-size:10px;background:var(--s2);border:1px solid var(--b0);
+  border-radius:4px;padding:2px 7px;color:var(--text);white-space:nowrap;
+}
+.stroke-chip strong{color:var(--primary);font-size:11px}
+
+.m-toolbar{display:flex;align-items:center;gap:5px;padding:6px 8px;
+  border-bottom:1px solid var(--b0);flex-shrink:0}
+.m-count{font-size:11px;color:var(--dim);flex:1}
+.m-count strong{color:var(--text);font-size:12px}
+.m-toolbar .btn{padding:4px 8px;font-size:11px}
+.mark-hit-btn{background:var(--primary);border-color:var(--primary);
+  color:#fff;font-weight:700;font-size:12px;padding:5px 11px}
+.mark-hit-btn:hover{opacity:.85;background:var(--primary)}
+
+.sel-bar{display:none;align-items:center;gap:5px;padding:5px 8px;
+  background:var(--pdim);border-bottom:1px solid rgba(108,139,255,.2);flex-shrink:0}
+.sel-bar.on{display:flex}
+.sel-count{flex:1;font-size:11px;color:var(--primary);font-weight:500}
+.sel-bar .btn{padding:3px 8px;font-size:11px}
+.sel-bar .btn.danger{background:rgba(255,107,107,.12);border-color:var(--danger);color:var(--danger)}
+
+#markersList{flex:1;overflow-y:auto}
+.marker-row{display:flex;align-items:center;gap:6px;padding:6px 8px;
+  border-bottom:1px solid var(--b0);transition:background .1s}
+.marker-row:hover{background:var(--s1)}
+.marker-row.sel{background:var(--pdim)}
+.marker-row.active{background:var(--phi)}
+.m-chk{width:15px;height:15px;flex-shrink:0;border:1.5px solid var(--b1);
+  border-radius:3px;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:background .1s,border-color .1s}
+.marker-row.sel .m-chk{background:var(--primary);border-color:var(--primary)}
+.m-chk-mk{display:none;color:#fff;font-size:8px;font-weight:700}
+.marker-row.sel .m-chk-mk{display:block}
+.m-idx{font-size:10px;color:var(--faint);width:20px;text-align:right;flex-shrink:0}
+.m-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.m-dot.detected{background:var(--warn)}
+.m-dot.manual{background:var(--primary)}
+.m-time{font-size:11px;font-variant-numeric:tabular-nums;font-weight:600;
+  color:var(--text);min-width:50px;cursor:pointer;padding:2px 3px;
+  border-radius:3px;transition:color .1s,background .1s;flex-shrink:0}
+.m-time:hover{color:var(--primary);background:var(--pdim)}
+.m-sel{flex:1;background:var(--s1);border:1px solid var(--b0);border-radius:4px;
+  color:var(--text);font-size:11px;padding:3px 5px;cursor:pointer;outline:none;
+  -webkit-appearance:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%237878a0'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 5px center;padding-right:18px}
+.m-sel:focus{border-color:var(--primary)}
+.m-sel.unk{color:var(--dim)}
+.m-del{background:transparent;border:none;color:var(--faint);cursor:pointer;
+  font-size:13px;line-height:1;padding:3px 4px;border-radius:3px;
+  transition:color .1s,background .1s;flex-shrink:0}
+.m-del:hover{color:var(--danger);background:rgba(255,107,107,.1)}
+.empty-m{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:40px 16px;gap:10px;color:var(--dim)}
+.empty-m .em{font-size:26px;opacity:.3}
+.empty-m p{font-size:12px;text-align:center;line-height:1.7}
+
+/* ── Modal ──────────────────────────────────── */
+.backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);
+  backdrop-filter:blur(5px);z-index:50;align-items:center;justify-content:center}
+.backdrop.on{display:flex}
+.modal{background:var(--s0);border:1px solid var(--b1);border-radius:var(--r);
+  padding:20px;width:320px;display:flex;flex-direction:column;gap:12px;
+  box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.modal h3{font-size:14px;font-weight:600}
+.modal .sub{font-size:11px;color:var(--dim)}
+.stroke-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.stroke-opt{background:var(--s1);border:1px solid var(--b0);border-radius:var(--rs);
+  padding:8px 10px;cursor:pointer;font-size:12px;color:var(--text);text-align:left;
+  display:flex;align-items:center;gap:7px;transition:background .1s,border-color .1s;
+  font-family:inherit}
+.stroke-opt:hover{background:var(--s2);border-color:var(--b1)}
+.modal-foot{display:flex;justify-content:flex-end}
+
+/* ── Toast ──────────────────────────────────── */
+.toast{position:fixed;bottom:16px;left:50%;
+  transform:translateX(-50%) translateY(0);
+  background:var(--s0);border:1px solid var(--b1);border-radius:var(--rs);
+  padding:8px 16px;font-size:12px;z-index:200;
+  transition:transform .24s,opacity .24s;pointer-events:none;
+  white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.toast.ok{border-color:var(--ok);color:var(--ok)}
+.toast.err{border-color:var(--danger);color:var(--danger)}
+.toast.info{border-color:var(--primary);color:var(--primary)}
+.toast.hide{transform:translateX(-50%) translateY(70px);opacity:0}
+
+input[type=file]{display:none}
+
+/* ── Recent Workspaces ───────────────────────── */
+.sb-section-title{
+  font-size:9px;font-weight:700;color:var(--faint);letter-spacing:.6px;
+  text-transform:uppercase;padding:10px 12px 4px;
+}
+.recent-item{
+  display:flex;align-items:center;gap:7px;
+  padding:6px 10px;cursor:pointer;transition:background .1s;
+  border-radius:0;
+}
+.recent-item:hover{background:var(--s1)}
+.recent-icon{font-size:15px;flex-shrink:0;opacity:.65}
+.recent-info{flex:1;min-width:0}
+.recent-name{font-size:12px;color:var(--text);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.recent-time{font-size:10px;color:var(--dim);margin-top:1px}
+.recent-del{
+  background:transparent;border:none;color:var(--faint);cursor:pointer;
+  padding:3px 5px;border-radius:3px;font-size:12px;line-height:1;
+  flex-shrink:0;transition:color .1s,background .1s;
+}
+.recent-del:hover{color:var(--danger);background:rgba(255,107,107,.1)}
+
+/* Change-video button */
+.ctrl-btn.change-vid{color:var(--dim);font-size:12px}
+
+/* ── Validation Mode ─────────────────────────────────────────── */
+.val-load-bar{
+  display:flex;align-items:center;gap:6px;
+  padding:5px 8px;border-bottom:1px solid var(--b0);flex-shrink:0;
+  background:rgba(108,139,255,.04);
+}
+.val-load-bar span{font-size:10px;color:var(--faint);flex:1}
+.val-toolbar{
+  display:flex;align-items:center;gap:5px;
+  padding:6px 8px;border-bottom:1px solid rgba(76,175,136,.25);
+  flex-shrink:0;background:rgba(76,175,136,.06);
+}
+.val-progress{font-size:11px;color:var(--ok);flex:1}
+.val-progress strong{color:var(--text)}
+
+#valPanel{flex:1;display:none;flex-direction:column;overflow:hidden}
+#valPanel.on{display:flex}
+
+.val-card{
+  flex:1;overflow-y:auto;padding:14px 12px;
+  display:flex;flex-direction:column;gap:14px;
+}
+.val-ts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.val-ts-time{
+  font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;
+  color:var(--text);cursor:pointer;transition:color .12s;
+}
+.val-ts-time:hover{color:var(--primary)}
+.val-ts-seek{
+  font-size:11px;color:var(--primary);cursor:pointer;
+  background:var(--pdim);border-radius:4px;padding:2px 9px;
+  transition:background .1s;border:1px solid rgba(108,139,255,.2);
+}
+.val-ts-seek:hover{background:var(--phi)}
+.val-verdict-prev{font-size:11px;padding:1px 6px;margin-left:auto}
+.val-section-label{
+  font-size:9px;font-weight:700;color:var(--faint);
+  text-transform:uppercase;letter-spacing:.6px;margin-bottom:5px;
+}
+.val-prediction{display:flex;align-items:center;gap:10px}
+.val-stroke-icon{font-size:24px;flex-shrink:0}
+.val-stroke-name{font-size:17px;font-weight:700;color:var(--text)}
+.conf-badge{
+  font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;
+  font-variant-numeric:tabular-nums;margin-left:auto;flex-shrink:0;
+}
+.conf-badge.hi{background:rgba(76,175,136,.2);color:var(--ok)}
+.conf-badge.mid{background:rgba(255,169,77,.18);color:var(--warn)}
+.conf-badge.lo{background:rgba(255,107,107,.15);color:var(--danger)}
+.val-orig{font-size:11px;color:var(--dim);margin-top:3px}
+.val-orig em{color:var(--text);font-style:normal}
+.top3-list{display:flex;flex-direction:column;gap:6px}
+.top3-row{display:flex;align-items:center;gap:7px}
+.top3-label{font-size:11px;color:var(--dim);width:108px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0}
+.top3-bar-wrap{flex:1;height:5px;background:var(--s2);border-radius:3px;overflow:hidden}
+.top3-bar-fill{height:100%;background:var(--primary);border-radius:3px}
+.top3-pct{font-size:10px;color:var(--faint);min-width:28px;text-align:right;
+  font-variant-numeric:tabular-nums}
+.val-verdict-row{display:flex;gap:6px;padding-top:2px}
+.val-verdict-row .btn{flex:1;justify-content:center;font-size:13px;
+  font-weight:700;padding:10px 4px}
+.btn.v-correct{background:rgba(76,175,136,.18);border-color:var(--ok);color:var(--ok)}
+.btn.v-correct:hover{background:rgba(76,175,136,.32)}
+.btn.v-wrong{background:rgba(255,107,107,.15);border-color:var(--danger);color:var(--danger)}
+.btn.v-wrong:hover{background:rgba(255,107,107,.28)}
+.btn.v-dup{background:rgba(108,139,255,.13);border-color:var(--primary);color:var(--primary)}
+.btn.v-dup:hover{background:rgba(108,139,255,.24)}
+.btn.v-skip{color:var(--dim)}
+.val-nav-row{
+  display:flex;align-items:center;gap:6px;padding:7px 10px;
+  border-top:1px solid var(--b0);flex-shrink:0;background:var(--s0);
+}
+.val-idx-display{font-size:11px;color:var(--dim);flex:1;text-align:center;
+  font-variant-numeric:tabular-nums}
+.val-kbd-row{
+  font-size:10px;color:var(--faint);padding:5px 10px;
+  border-top:1px solid var(--b0);flex-shrink:0;
+  display:flex;gap:10px;flex-wrap:wrap;background:var(--s0);
+}
+.val-kbd-row span{display:flex;align-items:center;gap:3px}
+
+/* Stroke pick grid inside val card */
+.val-stroke-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.val-stroke-btn{
+  background:var(--s1);border:1.5px solid var(--b0);border-radius:var(--rs);
+  padding:7px 4px;cursor:pointer;color:var(--text);font-family:inherit;
+  text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px;
+  transition:background .1s,border-color .1s;
+}
+.val-stroke-btn .vsb-icon{font-size:17px;line-height:1}
+.val-stroke-btn .vsb-lbl{font-size:9px;color:var(--dim);line-height:1.3;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.val-stroke-btn:hover{background:var(--s2);border-color:var(--b1)}
+.val-stroke-btn.is-pred{border-color:var(--primary);background:var(--pdim)}
+.val-stroke-btn.is-pred .vsb-lbl{color:var(--primary)}
+.val-stroke-btn.picked-ok{border-color:var(--ok)!important;background:rgba(76,175,136,.22)!important}
+.val-stroke-btn.picked-wrong{border-color:var(--danger)!important;background:rgba(255,107,107,.18)!important}
+.val-skip-row{display:flex;align-items:center;gap:6px;padding-top:2px}
+.val-skip-row .skip-hint{font-size:10px;color:var(--faint);flex:1}
+</style>
+</head>
+<body>
+
+<!-- Topbar -->
+<header class="topbar">
+  <button class="btn icon-btn" id="sidebarToggleBtn" title="Toggle file browser">☰</button>
+  <div class="logo">
+    <div class="logo-mark">🎾</div>
+    PadelLabs
+  </div>
+  <span class="sep">/</span>
+  <span style="color:var(--dim);font-size:12px">Session Labeling</span>
+  <div id="sessionPill" class="session-pill" style="display:none"></div>
+  <div class="gap"></div>
+  <div class="hints" id="hints">
+    <span class="kbd">Space</span><span>play</span>
+    <span class="kbd">M</span><span>mark</span>
+    <span class="kbd">←→</span><span>seek</span>
+    <span class="kbd">⌘S</span><span>save</span>
+  </div>
+  <button class="btn" id="openFolderBtn">📁 Open DataCollection Folder</button>
+  <button class="btn primary" id="saveBtn" disabled>Save</button>
+</header>
+
+<!-- Layout -->
+<div class="layout">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-header">
+      <span class="sb-title" id="sbTitle">No folder open</span>
+      <div class="sb-actions">
+        <button class="btn icon-btn" id="refreshBtn" title="Refresh" style="font-size:12px">↺</button>
+      </div>
+    </div>
+    <div class="sb-body" id="sbBody">
+      <div class="sb-empty">
+        <div class="em">📁</div>
+        <p>Click <strong>Open DataCollection Folder</strong> to browse sessions</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Center: video + timeline -->
+  <div class="center">
+    <div class="video-wrap" id="videoWrap">
+      <div class="video-ph" id="videoPh" onclick="pickVideo()">
+        <div class="ph-icon">🎬</div>
+        <p>Click to load video — or drag here</p>
+        <button class="btn" style="pointer-events:none;margin-top:2px">Load Video</button>
+      </div>
+      <video id="videoEl" playsinline></video>
+      <div class="vid-badge" id="vidBadge"></div>
+    </div>
+
+    <!-- Custom video controls -->
+    <div class="vid-controls" id="vidControls" style="display:none">
+      <!-- Progress / scrubber -->
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-buf"  id="progressBuf"></div>
+        <div class="progress-fill" id="progressFill"></div>
+        <div class="progress-thumb" id="progressThumb"></div>
+      </div>
+      <!-- Buttons row -->
+      <div class="ctrl-row">
+        <button class="ctrl-btn" id="ctrlBack5"  title="Back 5 s (Shift+←)">«5s</button>
+        <button class="ctrl-btn" id="ctrlBack1"  title="Back 1 s (←)">‹1s</button>
+        <button class="ctrl-btn ctrl-play" id="ctrlPlay" title="Play / Pause (Space)">▶</button>
+        <button class="ctrl-btn" id="ctrlFwd1"   title="Forward 1 s (→)">1s›</button>
+        <button class="ctrl-btn" id="ctrlFwd5"   title="Forward 5 s (Shift+→)">5s»</button>
+        <button class="ctrl-btn change-vid" id="changeVidBtn" title="Load another video for this session">🔄 Video</button>
+        <div class="ctrl-gap"></div>
+        <span class="ctrl-time" id="ctrlTime">0:00 / 0:00</span>
+        <select class="ctrl-speed" id="ctrlSpeed" title="Playback speed">
+          <option value="0.25">0.25×</option>
+          <option value="0.5">0.5×</option>
+          <option value="0.75">0.75×</option>
+          <option value="1" selected>1×</option>
+          <option value="1.25">1.25×</option>
+          <option value="1.5">1.5×</option>
+          <option value="2">2×</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="sync-bar">
+      <label>Sync offset</label>
+      <input type="range" id="syncSlider" min="-120" max="120" step="0.1" value="0">
+      <span class="sync-val" id="syncVal">+0.0 s</span>
+      <button class="btn" id="resetSyncBtn">Reset</button>
+      <button class="btn" id="autoSyncBtn">⚡ Auto</button>
+      <div class="time-disp" id="timeDisp">Video 0:00.00 · IMU 0:00.00</div>
+    </div>
+
+    <!-- Resize handle: drag up/down to change waveform height -->
+    <div class="tl-resize-handle" id="tlResizeHandle" title="Drag to resize waveform"></div>
+
+    <div class="tl-wrap" id="tlWrap">
+      <div class="tl-hdr">
+        <span class="tl-title">IMU Waveform</span>
+        <span class="tl-hint">Scroll-zoom · Alt-drag pan · Click seek</span>
+        <div class="zoom-row">
+          <button class="zoom-btn" id="zoomOut">−</button>
+          <button class="zoom-btn" id="zoomFit">⊡</button>
+          <button class="zoom-btn" id="zoomIn">+</button>
+        </div>
+      </div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="tl"></canvas>
+        <div class="tl-empty" id="tlEmpty">Load a CSV to see the IMU waveform</div>
+      </div>
+      <!-- Horizontal scrollbar — synced with S.tl.pan / S.tl.zoom -->
+      <div class="tl-scroll-wrap" id="tlScrollWrap">
+        <div id="tlScrollInner"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: markers -->
+  <div class="right">
+    <div id="dropScreen">
+      <div style="font-size:42px;opacity:.6">🏓</div>
+      <h2>Load a session</h2>
+      <p>Open the DataCollection folder in the sidebar,<br>or drop files directly here.</p>
+      <div class="drop-zone" id="dropZone">
+        <div class="dz-icon">📂</div>
+        <p>Drop JSON + CSV + video<br><small style="opacity:.6">or click to browse</small></p>
+      </div>
+      <div class="file-cards">
+        <div class="file-card" id="cardJson" onclick="pickJson()">
+          <div class="fc-icon">📋</div><div class="fc-lbl">JSON</div><div class="fc-ok" id="chkJson"></div>
+        </div>
+        <div class="file-card" id="cardCsv" onclick="pickCsv()">
+          <div class="fc-icon">📊</div><div class="fc-lbl">CSV</div><div class="fc-ok" id="chkCsv"></div>
+        </div>
+        <div class="file-card" id="cardVid" onclick="pickVideo()">
+          <div class="fc-icon">🎬</div><div class="fc-lbl">Video</div><div class="fc-ok" id="chkVid"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="markersPanel">
+      <div class="meta-bar" id="metaBar"></div>
+      <div class="m-toolbar">
+        <span class="m-count"><strong id="mCount">0</strong> markers</span>
+        <button class="btn" id="addBtn">＋ Add</button>
+        <button class="btn" id="selAllBtn">Select All</button>
+        <button class="btn mark-hit-btn" id="markHitBtn" disabled>🎯 Mark Hit</button>
+      </div>
+      <!-- Validation load bar — shown after a session is loaded -->
+      <div class="val-load-bar" id="valLoadBar" style="display:none">
+        <span id="valLoadStatus">No classified CSV loaded</span>
+        <button class="btn" id="loadClassifiedBtn" style="padding:3px 8px;font-size:11px">📊 Load Classified</button>
+        <button class="btn primary" id="validateBtn" style="padding:3px 8px;font-size:11px;display:none">🔍 Validate</button>
+      </div>
+      <div class="sel-bar" id="selBar">
+        <span class="sel-count" id="selCount">0 selected</span>
+        <button class="btn" onclick="clearSel()">✕</button>
+        <button class="btn primary" onclick="openBulk()">Assign Type</button>
+        <button class="btn danger" onclick="deleteSel()">Delete</button>
+      </div>
+      <div id="markersList"></div>
+
+      <!-- Validation panel (replaces markersList when active) -->
+      <div id="valPanel">
+        <div class="val-toolbar">
+          <span class="val-progress" id="valProgress">0 / 0</span>
+          <button class="btn" id="exportVerdictsBtn" style="padding:3px 8px;font-size:11px">⬇ Export</button>
+          <button class="btn" id="exitValBtn" style="padding:3px 8px;font-size:11px">✕ Exit</button>
+        </div>
+        <!-- Active-learning triage: auto-accept confident predictions, review only the rest -->
+        <div class="val-toolbar" id="autoAcceptBar" style="gap:6px;flex-wrap:wrap">
+          <button class="btn primary" id="autoAcceptBtn" style="padding:3px 8px;font-size:11px"
+                  title="Mark every pending prediction as ✓ correct when confidence ≥ min conf AND (top1 − top2) ≥ margin. You review only the uncertain rest; auto rows stay overridable.">⚡ Auto-accept <span id="autoAcceptCount">0</span></button>
+          <label style="font-size:10px;color:var(--dim)">conf ≥
+            <input type="number" id="autoConfThr" value="0.85" min="0.5" max="1" step="0.05"
+                   style="width:52px;background:var(--bg2,#222);color:inherit;border:1px solid var(--line,#444);border-radius:4px;padding:1px 4px;font-size:10px">
+          </label>
+          <label style="font-size:10px;color:var(--dim)">margin ≥
+            <input type="number" id="autoMarginThr" value="0.30" min="0" max="1" step="0.05"
+                   style="width:52px;background:var(--bg2,#222);color:inherit;border:1px solid var(--line,#444);border-radius:4px;padding:1px 4px;font-size:10px">
+          </label>
+          <button class="btn" id="undoAutoBtn" style="padding:3px 8px;font-size:11px;display:none">↩ Undo auto</button>
+        </div>
+        <div class="val-card" id="valCard">
+          <div style="text-align:center;color:var(--dim);padding:48px 20px;line-height:2">
+            Load a <strong>_classified.csv</strong> and click<br><strong>Validate</strong> to begin.
+          </div>
+        </div>
+        <div class="val-nav-row">
+          <button class="btn" id="valPrevBtn" disabled>← Prev</button>
+          <span class="val-idx-display" id="valIdxDisplay">—</span>
+          <button class="btn" id="valNextBtn" disabled>Next →</button>
+        </div>
+        <div class="val-kbd-row">
+          <span><span class="kbd">Y</span> correct</span>
+          <span><span class="kbd">N</span> wrong</span>
+          <span><span class="kbd">D</span> duplicate</span>
+          <span><span class="kbd">S</span> skip</span>
+          <span><span class="kbd">←→</span> prev/next</span>
+          <span><span class="kbd">Space</span> play/pause</span>
+          <span style="color:var(--faint)">· tap a stroke to correct label</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /layout -->
+
+<!-- Bulk assign modal -->
+<div class="backdrop" id="bulkBackdrop">
+  <div class="modal">
+    <h3>Assign Stroke Type</h3>
+    <p class="sub" id="bulkSub"></p>
+    <div class="stroke-grid" id="strokeGrid"></div>
+    <div class="modal-foot"><button class="btn" onclick="closeBulk()">Cancel</button></div>
+  </div>
+</div>
+
+<div class="toast hide" id="toast"></div>
+
+<input type="file" id="fiJson" accept=".json">
+<input type="file" id="fiCsv" accept=".csv">
+<input type="file" id="fiVid" accept="video/*">
+<input type="file" id="fiAny" accept=".json,.csv,video/*" multiple>
+<input type="file" id="fiDir" webkitdirectory>
+<input type="file" id="fiClassified" accept=".csv">
+
+<script>
+'use strict';
+
+// ────────────────────────────────────────────────────────────
+// CONSTANTS
+// ────────────────────────────────────────────────────────────
+
+const STROKES = [
+  { id:'smash',           label:'Smash',          icon:'💥' },
+  { id:'vibora',          label:'Víbora',         icon:'🐍' },
+  { id:'bandeja',         label:'Bandeja',        icon:'🏓' },
+  { id:'forehand',        label:'Drive',          icon:'🎾' },
+  { id:'backhand',        label:'Backhand',       icon:'↩️'  },
+  { id:'forehand_lob',    label:'Drive Lob',      icon:'⬆️'  },
+  { id:'backhand_lob',    label:'Backhand Lob',   icon:'↖️'  },
+  { id:'forehand_volley', label:'Drive Volley',   icon:'⚡' },
+  { id:'backhand_volley', label:'Backhand Volley',icon:'🔁' },
+  { id:'unknown',         label:'Unknown',        icon:'❓' },
+];
+const STROKE_MAP = Object.fromEntries(STROKES.map(s => [s.id, s]));
+
+const VIDEO_EXTS = ['mp4','mov','MP4','MOV','m4v','M4V','avi'];
+
+// File System Access API availability (Chrome/Edge only — Safari uses webkitdirectory fallback)
+const FSA_SUPPORTED = typeof window.showDirectoryPicker === 'function';
+
+// ────────────────────────────────────────────────────────────
+// STATE
+// ────────────────────────────────────────────────────────────
+
+const S = {
+  sessionId:   null,
+  meta:        null,
+  markers:     [],
+  imu:         [],
+  syncOffset:  0,
+  selected:    new Set(),
+  jsonHandle:  null,   // FileSystemFileHandle — enables direct overwrite
+  videoFile:   null,
+  draftKey:    null,
+  tl: { zoom:1, pan:0, fit:false },
+  // sidebar
+  dirHandle:   null,
+  tree:        [],     // [{ name, sessions:[{id,jsonHandle,csvHandle,videoHandle,meta}] }]
+  activeNode:  null,   // currently loaded session node
+  // validation
+  predictions: [],     // parsed from _classified.csv
+  validIdx:    0,
+  validating:  false,
+};
+
+// ────────────────────────────────────────────────────────────
+// UTILS
+// ────────────────────────────────────────────────────────────
+
+function uid(){
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+    const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16);
+  });
+}
+function fmtTime(s){
+  const c=Math.max(0,s),m=Math.floor(c/60),r=c%60;
+  return `${m}:${String(Math.floor(r)).padStart(2,'0')}.${String(Math.round((r%1)*100)).padStart(2,'0')}`;
+}
+function fmtOffset(v){ return (v>=0?'+':'')+v.toFixed(1)+' s'; }
+function fmtDuration(secs){
+  if(!secs||secs<=0) return null;
+  if(secs>=3600) return `${Math.floor(secs/3600)}h ${Math.floor((secs%3600)/60)}m`;
+  if(secs>=60)   return `${Math.floor(secs/60)}m ${Math.floor(secs%60)}s`;
+  return `${Math.floor(secs)}s`;
+}
+
+let _tt;
+function toast(msg,type='ok'){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.className=`toast ${type}`;
+  clearTimeout(_tt); _tt=setTimeout(()=>el.classList.add('hide'),2600);
+}
+
+// ────────────────────────────────────────────────────────────
+// DRAFT
+// ────────────────────────────────────────────────────────────
+
+function saveDraft(){
+  if(!S.draftKey)return;
+  try{localStorage.setItem(S.draftKey,JSON.stringify({
+    syncOffset:S.syncOffset, videoTime:vid.currentTime||0,
+    markers:S.markers, ts:Date.now()
+  }));}catch(_){}
+}
+function getDraft(id){ try{const r=localStorage.getItem(`pl_${id}`);return r?JSON.parse(r):null;}catch(_){return null;} }
+function delDraft(){ if(S.draftKey)try{localStorage.removeItem(S.draftKey);}catch(_){} }
+setInterval(()=>{ if(S.sessionId) saveDraft(); },5000);
+
+function hasDraft(id){ return !!localStorage.getItem(`pl_${id}`); }
+
+// ────────────────────────────────────────────────────────────
+// INDEXEDDB — RECENT WORKSPACES
+// ────────────────────────────────────────────────────────────
+
+const IDB_NAME    = 'padellabs-labeler';
+const IDB_STORE   = 'recentDirs';
+const MAX_RECENT  = 5;
+
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains(IDB_STORE)){
+        db.createObjectStore(IDB_STORE, { keyPath:'id', autoIncrement:true });
+      }
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function saveRecentDir(handle){
+  try{
+    const db = await openDB();
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_STORE);
+    // Remove duplicates by name first
+    const all = await idbGetAll(store);
+    for(const entry of all){
+      if(entry.name === handle.name){
+        store.delete(entry.id);
+      }
+    }
+    store.add({ name: handle.name, handle, savedAt: Date.now() });
+    // Trim to MAX_RECENT
+    const allAfter = await new Promise(res=>{
+      const r2 = db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).getAll();
+      r2.onsuccess = ()=> res(r2.result);
+      r2.onerror   = ()=> res([]);
+    });
+    if(allAfter.length > MAX_RECENT){
+      // Delete oldest
+      const tx2 = db.transaction(IDB_STORE,'readwrite');
+      const st2  = tx2.objectStore(IDB_STORE);
+      allAfter.sort((a,b)=>a.savedAt-b.savedAt)
+        .slice(0, allAfter.length - MAX_RECENT)
+        .forEach(e=> st2.delete(e.id));
+    }
+  }catch(_){}
+}
+
+async function getRecentDirs(){
+  try{
+    const db = await openDB();
+    const all = await new Promise((res,rej)=>{
+      const r = db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).getAll();
+      r.onsuccess = ()=> res(r.result);
+      r.onerror   = ()=> rej(r.error);
+    });
+    return all.sort((a,b)=> b.savedAt - a.savedAt).slice(0, MAX_RECENT);
+  }catch(_){ return []; }
+}
+
+async function removeRecentDir(id){
+  try{
+    const db = await openDB();
+    db.transaction(IDB_STORE,'readwrite').objectStore(IDB_STORE).delete(id);
+  }catch(_){}
+}
+
+function idbGetAll(store){
+  return new Promise((res)=>{
+    const r = store.getAll();
+    r.onsuccess = ()=> res(r.result||[]);
+    r.onerror   = ()=> res([]);
+  });
+}
+
+function fmtAge(ms){
+  const s = (Date.now() - ms) / 1000;
+  if(s < 60)    return 'just now';
+  if(s < 3600)  return `${Math.floor(s/60)}m ago`;
+  if(s < 86400) return `${Math.floor(s/3600)}h ago`;
+  return `${Math.floor(s/86400)}d ago`;
+}
+
+async function renderSidebarEmpty(){
+  const body = document.getElementById('sbBody');
+  const recents = await getRecentDirs();
+
+  if(!recents.length){
+    const safariNote = FSA_SUPPORTED ? '' :
+      `<p style="font-size:10px;color:var(--faint);margin-top:4px">
+        Save will download the file — in-place overwrite requires Chrome/Edge.
+      </p>`;
+    body.innerHTML = `<div class="sb-empty">
+      <div class="em">📁</div>
+      <p>Click <strong>Open DataCollection Folder</strong> to browse sessions</p>
+      ${safariNote}
+    </div>`;
+    return;
+  }
+
+  let html = `<div class="sb-section-title">Recent Workspaces</div>`;
+  for(const entry of recents){
+    html += `<div class="recent-item" data-rid="${entry.id}">
+      <span class="recent-icon">📁</span>
+      <div class="recent-info">
+        <div class="recent-name">${esc(entry.name)}</div>
+        <div class="recent-time">${fmtAge(entry.savedAt)}</div>
+      </div>
+      <button class="recent-del" data-rid="${entry.id}" title="Remove from recent">✕</button>
+    </div>`;
+  }
+  html += `<div class="sb-empty" style="padding-top:16px">
+    <p style="font-size:11px">Or open a new folder above</p>
+  </div>`;
+  body.innerHTML = html;
+
+  // Attach click handlers
+  body.querySelectorAll('.recent-item').forEach(el=>{
+    el.addEventListener('click', async e=>{
+      if(e.target.classList.contains('recent-del')) return;
+      const rid = parseInt(el.dataset.rid);
+      const entry = recents.find(r=> r.id === rid);
+      if(entry) await openRecentDir(entry);
+    });
+  });
+  body.querySelectorAll('.recent-del').forEach(btn=>{
+    btn.addEventListener('click', async e=>{
+      e.stopPropagation();
+      const rid = parseInt(btn.dataset.rid);
+      await removeRecentDir(rid);
+      renderSidebarEmpty();
+    });
+  });
+}
+
+async function openRecentDir(entry){
+  try{
+    const perm = await entry.handle.requestPermission({ mode:'readwrite' });
+    if(perm !== 'granted'){ toast('Permission denied for that folder','err'); return; }
+    S.dirHandle = entry.handle;
+    await saveRecentDir(entry.handle); // bump to top
+    await scanDir(entry.handle);
+  }catch(e){
+    toast('Could not reopen folder','err');
+    // Remove stale entry
+    await removeRecentDir(entry.id);
+    renderSidebarEmpty();
+  }
+}
+
+// Show recents on load
+renderSidebarEmpty();
+
+// ────────────────────────────────────────────────────────────
+// SIDEBAR TOGGLE
+// ────────────────────────────────────────────────────────────
+
+document.getElementById('sidebarToggleBtn').addEventListener('click',()=>{
+  document.getElementById('sidebar').classList.toggle('collapsed');
+});
+
+// ────────────────────────────────────────────────────────────
+// DIRECTORY SCANNER
+// ────────────────────────────────────────────────────────────
+
+document.getElementById('openFolderBtn').addEventListener('click', openFolder);
+document.getElementById('refreshBtn').addEventListener('click', ()=>{ if(S.dirHandle) scanDir(S.dirHandle); });
+
+async function openFolder(){
+  if(FSA_SUPPORTED){
+    try{
+      const h = await window.showDirectoryPicker({ mode:'readwrite' });
+      S.dirHandle = h;
+      await saveRecentDir(h);
+      await scanDir(h);
+    }catch(_){}
+  } else {
+    // Safari fallback: use webkitdirectory input
+    document.getElementById('fiDir').click();
+  }
+}
+
+async function scanDir(dirHandle){
+  const sbBody = document.getElementById('sbBody');
+  sbBody.innerHTML = '<div class="sb-empty"><div class="em" style="font-size:20px;animation:spin 1s linear infinite">⟳</div><p>Scanning…</p></div>';
+  document.getElementById('sbTitle').textContent = dirHandle.name;
+
+  const groups = [];       // {name, sessions[]}
+  const rootSessions = []; // sessions sitting directly in the root (no player subdir)
+
+  for await (const [name, handle] of dirHandle.entries()){
+    if(handle.kind === 'directory'){
+      const sessions = await scanPlayerDir(handle);
+      if(sessions.length) groups.push({ name, handle, sessions });
+    } else if(handle.kind === 'file' && name.endsWith('.json') && !name.includes('_draft')){
+      // flat structure fallback
+      const session = await buildSessionNode(name, handle, dirHandle);
+      if(session) rootSessions.push(session);
+    }
+  }
+
+  // Sort groups alphabetically, sessions newest-first
+  groups.sort((a,b)=>a.name.localeCompare(b.name));
+  groups.forEach(g=>g.sessions.sort((a,b)=>new Date(b.meta?.date||0)-new Date(a.meta?.date||0)));
+
+  if(rootSessions.length){
+    rootSessions.sort((a,b)=>new Date(b.meta?.date||0)-new Date(a.meta?.date||0));
+    groups.unshift({ name:'(root)', handle: dirHandle, sessions: rootSessions });
+  }
+
+  S.tree = groups;
+  renderTree();
+}
+
+async function scanPlayerDir(playerHandle){
+  const sessions = [];
+  for await (const [fname, fhandle] of playerHandle.entries()){
+    if(fhandle.kind === 'directory'){
+      // Session-day subfolder (e.g. 2024-03-15/) — scan one level deeper
+      for await (const [jname, jhandle] of fhandle.entries()){
+        if(jhandle.kind === 'file' && jname.endsWith('.json') && !jname.includes('_draft')){
+          const session = await buildSessionNode(jname, jhandle, fhandle);
+          if(session) sessions.push(session);
+        }
+      }
+    } else if(fhandle.kind === 'file' && fname.endsWith('.json') && !fname.includes('_draft')){
+      // Sessions sitting directly inside the player folder (flat layout)
+      const session = await buildSessionNode(fname, fhandle, playerHandle);
+      if(session) sessions.push(session);
+    }
+  }
+  return sessions;
+}
+
+async function buildSessionNode(fname, jsonHandle, parentHandle){
+  const sessionId = fname.replace('.json','');
+
+  // Try to get CSV handle
+  let csvHandle = null;
+  try{ csvHandle = await parentHandle.getFileHandle(`${sessionId}.csv`); }catch(_){}
+
+  // Try to get classified CSV handle (produced by classify_session.swift)
+  let classifiedHandle = null;
+  try{ classifiedHandle = await parentHandle.getFileHandle(`${sessionId}_classified.csv`); }catch(_){}
+
+  // Try to get video handle (check common extensions)
+  let videoHandle = null;
+  for(const ext of VIDEO_EXTS){
+    try{ videoHandle = await parentHandle.getFileHandle(`${sessionId}_video.${ext}`); break; }catch(_){}
+  }
+
+  // Parse JSON for metadata (lightweight read)
+  let meta = null;
+  try{
+    const file = await jsonHandle.getFile();
+    meta = JSON.parse(await file.text());
+  }catch(_){}
+
+  return { id: sessionId, jsonHandle, csvHandle, classifiedHandle, videoHandle, meta };
+}
+
+// ────────────────────────────────────────────────────────────
+// SAFARI FALLBACK — webkitdirectory
+// ────────────────────────────────────────────────────────────
+
+document.getElementById('fiDir').addEventListener('change', async e => {
+  const files = [...e.target.files];
+  e.target.value = '';
+  if(!files.length) return;
+
+  const rootName = files[0].webkitRelativePath.split('/')[0];
+  const sbBody = document.getElementById('sbBody');
+  sbBody.innerHTML = '<div class="sb-empty"><div class="em" style="font-size:20px">⟳</div><p>Reading files…</p></div>';
+  document.getElementById('sbTitle').textContent = rootName;
+  // Disable refresh — no dirHandle to re-scan in Safari mode
+  document.getElementById('refreshBtn').disabled = true;
+  document.getElementById('refreshBtn').title = 'Re-open folder to refresh (Safari)';
+
+  S.dirHandle = null;
+  S.tree = await buildTreeFromFileList(files);
+  renderTree();
+});
+
+function isVideoExt(fname){
+  const lo = fname.toLowerCase();
+  return VIDEO_EXTS.some(e => lo.endsWith('.' + e.toLowerCase()));
+}
+
+async function buildTreeFromFileList(files){
+  // Map sessionId → { playerName, jsonFile, csvFile, videoFile }
+  const sessions = {};
+  // Track player insertion order
+  const playerOrder = [];
+
+  for(const file of files){
+    const parts = file.webkitRelativePath.split('/');
+    // parts[0] = root folder selected by user (e.g. DataCollection)
+    // Supported layouts (relative to root):
+    //   2 parts: root/file.ext           → playerName = '(root)'
+    //   3 parts: root/player/file.ext    → playerName = parts[1]
+    //   4 parts: root/player/day/file.ext → playerName = parts[1]
+
+    const fname = parts[parts.length - 1];
+    const isJson  = fname.endsWith('.json') && !fname.includes('_draft');
+    const isCsv   = fname.endsWith('.csv');
+    const isVideo = isVideoExt(fname);
+    if(!isJson && !isCsv && !isVideo) continue;
+
+    const playerName = parts.length >= 3 ? parts[1] : '(root)';
+
+    // Derive the base session ID (strip extension + optional _video suffix)
+    let baseId = fname
+      .replace(/_video\.[^.]+$/i, '')   // remove _video.mp4 etc.
+      .replace(/\.[^.]+$/, '');         // remove extension
+
+    const key = `${playerName}::${baseId}`;
+    if(!sessions[key]){
+      sessions[key] = { playerName, baseId, jsonFile:null, csvFile:null, videoFile:null };
+      if(!playerOrder.includes(playerName)) playerOrder.push(playerName);
+    }
+
+    if(isJson)  sessions[key].jsonFile  = file;
+    else if(isCsv)   sessions[key].csvFile   = file;
+    else if(isVideo) sessions[key].videoFile  = file;
+  }
+
+  // Build groups
+  const groups = {};
+  for(const player of playerOrder) groups[player] = { name: player, sessions: [] };
+
+  for(const [, s] of Object.entries(sessions)){
+    if(!s.jsonFile) continue;  // skip entries with no JSON
+
+    let meta = null;
+    try{ meta = JSON.parse(await s.jsonFile.text()); }catch(_){}
+
+    groups[s.playerName].sessions.push({
+      id:          s.baseId,
+      // FSA handles are null in Safari mode — loadSessionNode handles both
+      jsonHandle:  null,
+      csvHandle:   null,
+      videoHandle: null,
+      // Raw File objects (Safari path)
+      jsonFile:    s.jsonFile,
+      csvFile:     s.csvFile,
+      videoFile:   s.videoFile,
+      meta,
+    });
+  }
+
+  const tree = Object.values(groups).filter(g => g.sessions.length > 0);
+  tree.sort((a,b) => a.name.localeCompare(b.name));
+  tree.forEach(g => g.sessions.sort((a,b) => new Date(b.meta?.date||0) - new Date(a.meta?.date||0)));
+  return tree;
+}
+
+// ────────────────────────────────────────────────────────────
+// TREE RENDERING
+// ────────────────────────────────────────────────────────────
+
+function renderTree(){
+  const body = document.getElementById('sbBody');
+  if(!S.tree.length){
+    body.innerHTML='<div class="sb-empty"><div class="em">🗂️</div><p>No sessions found.<br>Make sure the folder contains<br>.json + .csv file pairs.</p></div>';
+    return;
+  }
+  body.innerHTML='';
+
+  S.tree.forEach((group, gi)=>{
+    const grpEl = document.createElement('div');
+    grpEl.className = 'player-group';
+
+    const toggle = document.createElement('button');
+    toggle.className = 'player-toggle';
+    toggle.innerHTML = `
+      <span class="player-arrow">▶</span>
+      <span class="player-name">👤 ${esc(group.name)}</span>
+      <span class="player-count">${group.sessions.length}</span>`;
+    toggle.addEventListener('click',()=>{
+      grpEl.classList.toggle('open');
+      toggle.classList.toggle('open');
+    });
+
+    const list = document.createElement('div');
+    list.className = 'session-list';
+
+    group.sessions.forEach((session, si)=>{
+      const node = document.createElement('div');
+      node.className = 'session-node';
+      if(S.activeNode && S.activeNode.id === session.id) node.classList.add('active');
+      node.dataset.gi = gi;
+      node.dataset.si = si;
+
+      const mode = session.meta?.mode;
+      const isFull = mode === 'fullSession';
+      const markerCount = session.meta?.markers?.length ?? 0;
+      const date = session.meta?.date ? new Date(session.meta.date) : null;
+      const dateStr = date ? date.toLocaleString('en', {
+        timeZone: 'Europe/Madrid',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }) : session.id.slice(0, 8) + '…';
+
+      const sampleCount  = session.meta?.sampleCount  ?? session.meta?.sample_count  ?? 0;
+      const samplingHz   = session.meta?.samplingHz   ?? session.meta?.sampling_hz   ?? 100;
+      const durStr       = fmtDuration(sampleCount / Math.max(samplingHz, 1));
+
+      // Recording quality badge (requires recordingGaps + recordingActiveSecs in JSON)
+      const rqGaps   = session.meta?.recordingGaps;
+      const rqActive = session.meta?.recordingActiveSecs;
+      let rqBadge = '';
+      if(typeof rqGaps === 'number' && typeof rqActive === 'number'){
+        const wallEst = rqActive + rqGaps; // rough wall-clock estimate
+        const pct = wallEst > 0 ? Math.min(100, Math.round(rqActive / wallEst * 100)) : 100;
+        if(rqGaps === 0){
+          rqBadge = `<span class="sn-badge rq-ok" title="Continuous recording — no gaps">✓ Continuous</span>`;
+        } else if(rqGaps <= 5){
+          rqBadge = `<span class="sn-badge rq-warn" title="${rqGaps} gap(s) detected (~${pct}% active)">${rqGaps} gap${rqGaps>1?'s':''} ~${pct}%</span>`;
+        } else {
+          rqBadge = `<span class="sn-badge rq-bad" title="${rqGaps} gaps — recording fragmented (~${pct}% active)">⚠ ${rqGaps} gaps ~${pct}%</span>`;
+        }
+      }
+
+      const badges = [];
+      if(durStr) badges.push(`<span class="sn-badge markers">⏱ ${durStr}</span>`);
+      if(rqBadge) badges.push(rqBadge);
+      if(!session.csvHandle) badges.push(`<span class="sn-badge nocsv">No CSV</span>`);
+      if(session.videoHandle) badges.push(`<span class="sn-badge video">🎬 video</span>`);
+      if(hasDraft(session.id)) badges.push(`<span class="sn-badge draft">Draft</span>`);
+      if(isFull && markerCount===0) badges.push(`<span class="sn-badge unlabeled">Unlabeled</span>`);
+      badges.push(`<span class="sn-badge markers">${markerCount} marks</span>`);
+
+      node.innerHTML = `
+        <div class="sn-dot ${isFull?'full':'drill'}"></div>
+        <div class="sn-info">
+          <div class="sn-date">${dateStr}</div>
+          <div class="sn-meta">${badges.join('')}</div>
+        </div>`;
+
+      node.addEventListener('click',()=> loadSessionNode(session, node));
+      list.appendChild(node);
+    });
+
+    grpEl.appendChild(toggle);
+    grpEl.appendChild(list);
+    body.appendChild(grpEl);
+  });
+}
+
+function esc(s){ const d=document.createElement('div');d.textContent=s;return d.innerHTML; }
+
+// ────────────────────────────────────────────────────────────
+// LOAD SESSION NODE FROM TREE
+// ────────────────────────────────────────────────────────────
+
+// Resolve a FileSystemFileHandle OR a raw File into a File object.
+async function resolveFile(handleOrFile){
+  if(!handleOrFile) return null;
+  if(handleOrFile instanceof File) return handleOrFile;
+  try{ return await handleOrFile.getFile(); }catch(_){ return null; }
+}
+
+async function loadSessionNode(session, nodeEl){
+  // Mark active in sidebar
+  document.querySelectorAll('.session-node.active').forEach(n=>n.classList.remove('active'));
+  nodeEl.classList.add('active');
+  S.activeNode = session;
+
+  // Resolve JSON (FSA handle or plain File)
+  const jsonSrc  = session.jsonHandle || session.jsonFile;
+  const jsonFile = await resolveFile(jsonSrc);
+  if(!jsonFile){ toast('Cannot read JSON','err'); return; }
+  // Pass FSA handle for in-place save (null in Safari → falls back to download)
+  loadJSON(await jsonFile.text(), session.jsonHandle || null);
+
+  // Resolve CSV
+  const csvSrc  = session.csvHandle || session.csvFile;
+  const csvFile = await resolveFile(csvSrc);
+  if(csvFile){
+    await loadCSV(await csvFile.text());
+  } else {
+    S.imu = [];
+    document.getElementById('tlEmpty').style.display='';
+    drawTimeline();
+  }
+
+  // Resolve video
+  const vidSrc  = session.videoHandle || session.videoFile;
+  const vidFile = await resolveFile(vidSrc);
+  if(vidFile){
+    loadVideoFile(vidFile);
+    toast('Video auto-loaded 🎬','info');
+  }
+
+  // Auto-load classified CSV if present alongside the session
+  const clsSrc  = session.classifiedHandle || session.classifiedFile || null;
+  const clsFile = await resolveFile(clsSrc);
+  if(clsFile){
+    await loadClassifiedCSV(await clsFile.text());
+    toast('Classified CSV auto-loaded 📊','info');
+  } else {
+    // Reset predictions when switching sessions
+    S.predictions = []; S.validIdx = 0;
+    document.getElementById('validateBtn').style.display = 'none';
+    document.getElementById('valLoadStatus').textContent = 'No classified CSV loaded';
+    if(S.validating) exitValidation();
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// VIDEO
+// ────────────────────────────────────────────────────────────
+
+const vid = document.getElementById('videoEl');
+const videoPh = document.getElementById('videoPh');
+
+vid.addEventListener('timeupdate', ()=>{ updateTimeDisp(); updateControls(); drawTimeline(); nearestMarkerHint(); });
+vid.addEventListener('play',    ()=> updatePlayBtn());
+vid.addEventListener('pause',   ()=> updatePlayBtn());
+vid.addEventListener('ended',   ()=>{ updatePlayBtn(); toast('Video ended — click 🔄 Video to load another','info'); });
+vid.addEventListener('durationchange', ()=> updateControls());
+vid.addEventListener('progress', ()=> updateBuffered());
+
+function updateTimeDisp(){
+  const vt=vid.currentTime, it=Math.max(0,vt+S.syncOffset);
+  document.getElementById('timeDisp').textContent=`Video ${fmtTime(vt)} · IMU ${fmtTime(it)}`;
+}
+
+// ── Controls helpers ──────────────────────────
+
+function updatePlayBtn(){
+  document.getElementById('ctrlPlay').textContent = vid.paused ? '▶' : '⏸';
+}
+
+function updateControls(){
+  const cur=vid.currentTime, dur=vid.duration||0;
+  const pct = dur>0 ? cur/dur*100 : 0;
+  document.getElementById('progressFill').style.width  = pct+'%';
+  document.getElementById('progressThumb').style.left  = pct+'%';
+  document.getElementById('ctrlTime').textContent =
+    `${fmtTime(cur)} / ${dur>0?fmtTime(dur):'–:––'}`;
+  updateBuffered();
+}
+
+function updateBuffered(){
+  const dur=vid.duration||0; if(!dur) return;
+  let buf=0;
+  try{
+    const r=vid.buffered;
+    for(let i=0;i<r.length;i++) if(r.start(i)<=vid.currentTime){ buf=r.end(i); }
+  }catch(_){}
+  document.getElementById('progressBuf').style.width=(buf/dur*100)+'%';
+}
+
+// ── Progress bar interaction ──────────────────
+
+const progressWrap = document.getElementById('progressWrap');
+let _scrubbing = false;
+
+function seekFromProgressEvent(e){
+  const rect=progressWrap.getBoundingClientRect();
+  const pct=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  vid.currentTime=pct*(vid.duration||0);
+}
+progressWrap.addEventListener('mousedown', e=>{
+  _scrubbing=true; seekFromProgressEvent(e); e.preventDefault();
+});
+window.addEventListener('mousemove', e=>{ if(_scrubbing) seekFromProgressEvent(e); });
+window.addEventListener('mouseup',   ()=>{ _scrubbing=false; });
+
+// ── Control buttons ───────────────────────────
+
+document.getElementById('ctrlPlay').addEventListener('click', ()=>{
+  vid.paused ? vid.play() : vid.pause();
+});
+document.getElementById('ctrlBack5').addEventListener('click', ()=>{ vid.currentTime=Math.max(0,vid.currentTime-5); });
+document.getElementById('ctrlBack1').addEventListener('click', ()=>{ vid.currentTime=Math.max(0,vid.currentTime-1); });
+document.getElementById('ctrlFwd1').addEventListener('click',  ()=>{ vid.currentTime=Math.min(vid.duration||0,vid.currentTime+1); });
+document.getElementById('ctrlFwd5').addEventListener('click',  ()=>{ vid.currentTime=Math.min(vid.duration||0,vid.currentTime+5); });
+document.getElementById('ctrlSpeed').addEventListener('change', e=>{ vid.playbackRate=parseFloat(e.target.value); });
+
+function loadVideoFile(file){
+  S.videoFile=file;
+  if(S._videoURL) URL.revokeObjectURL(S._videoURL);
+  S._videoURL = URL.createObjectURL(file);
+  vid.src=S._videoURL; vid.style.display='block'; videoPh.style.display='none';
+  document.getElementById('vidControls').style.display='';
+  document.getElementById('vidBadge').textContent=file.name;
+  document.getElementById('vidBadge').style.display='';
+  document.getElementById('markHitBtn').disabled=false;
+  updatePlayBtn();
+  markOk('cardVid','chkVid');
+}
+
+// ────────────────────────────────────────────────────────────
+// SYNC
+// ────────────────────────────────────────────────────────────
+
+const syncSlider=document.getElementById('syncSlider');
+const syncValEl=document.getElementById('syncVal');
+
+function applySync(v){
+  S.syncOffset=Math.round(v*10)/10;
+  syncSlider.value=Math.max(-120,Math.min(120,S.syncOffset));
+  syncValEl.textContent=fmtOffset(S.syncOffset);
+  updateTimeDisp(); drawTimeline(); saveDraft();
+}
+
+syncSlider.addEventListener('input',()=>applySync(parseFloat(syncSlider.value)));
+document.getElementById('resetSyncBtn').addEventListener('click',()=>applySync(0));
+document.getElementById('autoSyncBtn').addEventListener('click',()=>{
+  if(!S.meta){toast('Load a session first','err');return;}
+  if(!S.videoFile){toast('Load a video first','err');return;}
+  const sd=new Date(S.meta.date), vd=new Date(S.videoFile.lastModified);
+  if(isNaN(sd)||isNaN(vd)){toast('Could not compute offset','err');return;}
+  applySync((sd-vd)/1000);
+  toast(`Auto-sync: ${fmtOffset(S.syncOffset)}`,'info');
+});
+
+// ────────────────────────────────────────────────────────────
+// JSON
+// ────────────────────────────────────────────────────────────
+
+function loadJSON(text, handle){
+  let json;
+  try{json=JSON.parse(text);}catch(_){toast('Invalid JSON','err');return;}
+
+  S.meta=json; S.jsonHandle=handle||null;
+  S.sessionId=json.sessionId||json.session_id||uid();
+  S.draftKey=`pl_${S.sessionId}`;
+
+  S.markers=(json.markers||[]).map(m=>({
+    id:m.id||uid(), timestamp:parseFloat(m.timestamp)||0,
+    strokeType:m.strokeType||m.stroke_type||'unknown', source:'detected'
+  }));
+
+  // Pre-load sync offset from video_label_assist.py if present
+  if(typeof json.videoSyncOffset === 'number'){
+    applySync(json.videoSyncOffset);
+    toast(`Video sync loaded: ${fmtOffset(json.videoSyncOffset)}`,'info');
+  }
+
+  // Restore draft? (draft syncOffset overrides the JSON one)
+  const draft=getDraft(S.sessionId);
+  if(draft && typeof draft.markers!=='undefined'){
+    const age=Math.round((Date.now()-draft.ts)/60000);
+    const label=age<60?`${age}m ago`:`${Math.round(age/60)}h ago`;
+    if(confirm(`Found a draft from ${label} (${draft.markers.length} markers).\nRestore it?`)){
+      S.markers=draft.markers;
+      applySync(draft.syncOffset||0);
+    }
+  }
+
+  // UI
+  const mode=json.mode==='fullSession'?'Full Session':'Drill';
+  document.getElementById('sessionPill').textContent=`${mode} · ${S.markers.length} markers`;
+  document.getElementById('sessionPill').style.display='';
+  document.getElementById('hints').style.display='flex';
+  document.getElementById('saveBtn').disabled=false;
+  markOk('cardJson','chkJson');
+
+  document.getElementById('dropScreen').style.display='none';
+  document.getElementById('markersPanel').style.display='flex';
+  document.getElementById('markersPanel').style.flexDirection='column';
+  document.getElementById('valLoadBar').style.display='';
+
+  S.tl.fit=false;
+  renderMetaBar(); renderMarkers(); drawTimeline();
+}
+
+function renderMetaBar(){
+  if(!S.meta) return;
+  const json = S.meta;
+  const d = json.date ? new Date(json.date) : null;
+
+  // Static session chips
+  const filename = S.sessionId || '—';
+  const chips = [
+    ['File', filename],
+    ['Date', d ? d.toLocaleString('en',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—'],
+    ['Player', json.playerId||json.player_id||'—'],
+    ['Watch', json.watchModel||json.watch_model||'—'],
+    ['Hz', json.samplingHz||json.sampling_hz||100],
+    ['Samples', (json.sampleCount||json.sample_count||0).toLocaleString()],
+  ].map(([k,v])=>`<span class="meta-item"><strong>${esc(String(v))}</strong> <span style="opacity:.55">${k}</span></span>`).join('');
+
+  // Stroke breakdown from current markers (excluding unknown if count is 0)
+  const counts = {};
+  for(const m of S.markers){
+    if(m.strokeType && m.strokeType !== 'unknown'){
+      counts[m.strokeType] = (counts[m.strokeType]||0) + 1;
+    }
+  }
+  const unknownCount = S.markers.filter(m => m.strokeType === 'unknown').length;
+  if(unknownCount > 0) counts['unknown'] = unknownCount;
+
+  const strokeHTML = Object.entries(counts)
+    .sort((a,b) => b[1]-a[1])
+    .map(([type, count]) => {
+      const s = STROKE_MAP[type] || { icon:'❓', label: type };
+      return `<span class="stroke-chip" title="${s.label}">${s.icon} <strong>${count}</strong></span>`;
+    }).join('');
+
+  const strokeRow = strokeHTML
+    ? `<div class="meta-strokes">${strokeHTML}</div>`
+    : '';
+
+  document.getElementById('metaBar').innerHTML =
+    `<div class="meta-chips">${chips}</div>` + strokeRow;
+}
+
+// ────────────────────────────────────────────────────────────
+// CSV
+// ────────────────────────────────────────────────────────────
+
+async function loadCSV(text){
+  const lines=text.split('\n');
+  if(lines.length<2){toast('CSV empty','err');return;}
+  lines.shift();
+  const all=[];
+  for(const line of lines){
+    const cols=line.trim().split(',');
+    if(cols.length<4)continue;
+    const t=parseFloat(cols[0]),ax=parseFloat(cols[1]),ay=parseFloat(cols[2]),az=parseFloat(cols[3]);
+    if(isNaN(t)||isNaN(ax))continue;
+    all.push({timestamp:t,magnitude:Math.sqrt(ax*ax+ay*ay+az*az)});
+  }
+  const MAX=1400;
+  S.imu = all.length<=MAX ? all : all.filter((_,i)=>i%Math.floor(all.length/MAX)===0);
+  document.getElementById('tlEmpty').style.display='none';
+  S.tl.fit=false;
+  markOk('cardCsv','chkCsv');
+  drawTimeline();
+  toast(`${S.imu.length.toLocaleString()} IMU samples`,'ok');
+}
+
+// ────────────────────────────────────────────────────────────
+// SAVE — overwrites original file if FSA handle available
+// ────────────────────────────────────────────────────────────
+
+document.getElementById('saveBtn').addEventListener('click', saveJSON);
+
+async function saveJSON(){
+  if(!S.meta)return;
+
+  // Merge validated predictions into markers before saving.
+  // correct  → keep predicted stroke type
+  // wrong    → use correctedLabel
+  // skip     → leave as unknown (confirmed non-stroke or deferred)
+  // null     → leave unchanged (not yet reviewed)
+  if(S.predictions && S.predictions.length){
+    const verdictMap = {};
+    for(const p of S.predictions){
+      if(p.verdict === 'correct'){
+        verdictMap[parseFloat(p.timestamp.toFixed(4))] = p.predictedStroke;
+      } else if(p.verdict === 'wrong' && p.correctedLabel){
+        verdictMap[parseFloat(p.timestamp.toFixed(4))] = p.correctedLabel;
+      }
+      // skip / duplicate / null → no update → stays as unknown
+    }
+    if(Object.keys(verdictMap).length){
+      for(const m of S.markers){
+        const key = parseFloat(m.timestamp.toFixed(4));
+        if(verdictMap[key] !== undefined) m.strokeType = verdictMap[key];
+      }
+    }
+  }
+
+  const sorted=[...S.markers].sort((a,b)=>a.timestamp-b.timestamp);
+  const out={...S.meta, mode:'drillLabeled',
+    markers:sorted.map(m=>({id:m.id,timestamp:m.timestamp,strokeType:m.strokeType}))};
+  const text=JSON.stringify(out,null,2);
+
+  if(S.jsonHandle){
+    try{
+      const w=await S.jsonHandle.createWritable();
+      await w.write(text); await w.close();
+      delDraft();
+      toast(`Saved ${sorted.length} markers ✓`,'ok');
+      // Refresh badge count in sidebar
+      if(S.activeNode){ S.activeNode.meta=out; renderTree(); }
+      return;
+    }catch(e){ toast('Write failed — downloading instead','err'); }
+  }
+
+  // Fallback download (Safari or no FSA handle)
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:'application/json'}));
+  // Keep original filename so user can manually replace the file
+  const origName = S.meta?.sessionId || S.sessionId;
+  a.download=`${origName}.json`; a.click();
+  delDraft();
+  const msg = FSA_SUPPORTED
+    ? `Downloaded ${sorted.length} markers`
+    : `Downloaded — replace the original file in your DataCollection folder`;
+  toast(msg,'ok');
+}
+
+// ────────────────────────────────────────────────────────────
+// TIMELINE CANVAS
+// ────────────────────────────────────────────────────────────
+
+const canvas=document.getElementById('tl');
+const canvasWrap=document.getElementById('canvasWrap');
+
+function totalDur(){
+  if(S.imu.length)return S.imu[S.imu.length-1].timestamp;
+  if(S.markers.length)return Math.max(...S.markers.map(m=>m.timestamp))+10;
+  return vid.duration||300;
+}
+function fitTL(){
+  const w=canvasWrap.clientWidth,dur=totalDur();
+  if(dur>0){S.tl.zoom=w/dur;S.tl.pan=0;S.tl.fit=true;}
+}
+function toX(t){return(t-S.tl.pan)*S.tl.zoom;}
+function fromX(x){return x/S.tl.zoom+S.tl.pan;}
+function gridStep(){
+  const steps=[0.5,1,2,5,10,15,30,60,120,300,600];
+  for(const s of steps)if(S.tl.zoom*s>=55)return s;
+  return 600;
+}
+
+function drawTimeline(){
+  const w=canvasWrap.clientWidth,h=canvasWrap.clientHeight;
+  canvas.width=w; canvas.height=h;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle='#161627'; ctx.fillRect(0,0,w,h);
+
+  const any=S.imu.length||S.markers.length;
+  if(!any)return;
+  if(!S.tl.fit)fitTL();
+
+  const dur=totalDur(), step=gridStep();
+  ctx.strokeStyle='rgba(255,255,255,0.04)'; ctx.lineWidth=1;
+  ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.font='9px -apple-system,sans-serif';
+  for(let t=0;t<=dur+step;t+=step){
+    const x=toX(t); if(x<-1||x>w+1)continue;
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();
+    ctx.fillText(fmtTime(t),x+2,h-3);
+  }
+
+  if(S.imu.length>1){
+    const maxM=Math.max(...S.imu.map(s=>s.magnitude),0.01);
+    const base=h*0.85,amp=h*0.75;
+    ctx.beginPath(); let st=false;
+    for(const s of S.imu){
+      const x=toX(s.timestamp); if(x<-1||x>w+1)continue;
+      const y=base-(s.magnitude/maxM)*amp;
+      if(!st){ctx.moveTo(x,base);ctx.lineTo(x,y);st=true;}else ctx.lineTo(x,y);
+    }
+    if(st){
+      const lv=[...S.imu].reverse().find(s=>toX(s.timestamp)<=w+1);
+      if(lv)ctx.lineTo(toX(lv.timestamp),base);
+      ctx.closePath();
+      const g=ctx.createLinearGradient(0,0,0,h);
+      g.addColorStop(0,'rgba(108,139,255,0.26)'); g.addColorStop(1,'rgba(108,139,255,0.01)');
+      ctx.fillStyle=g; ctx.fill();
+    }
+    ctx.beginPath(); ctx.strokeStyle='rgba(108,139,255,0.68)'; ctx.lineWidth=1.2; st=false;
+    for(const s of S.imu){
+      const x=toX(s.timestamp); if(x<-1||x>w+1)continue;
+      const y=base-(s.magnitude/maxM)*amp;
+      if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+
+  const imuNow=Math.max(0,(vid.currentTime||0)+S.syncOffset);
+  for(const m of S.markers){
+    const x=toX(m.timestamp); if(x<-6||x>w+6)continue;
+    const isSel=S.selected.has(m.id),isNear=Math.abs(m.timestamp-imuNow)<2;
+    const base=m.source==='manual'?'#6C8BFF':'#FFA94D';
+    ctx.strokeStyle=isSel?'#fff':base; ctx.lineWidth=isSel?2:1.5;
+    ctx.globalAlpha=isSel?1:isNear?0.85:0.5;
+    ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h-14);ctx.stroke();
+    ctx.globalAlpha=1;
+    ctx.fillStyle=isSel?'#fff':base;
+    ctx.beginPath();ctx.arc(x,5,3.5,0,Math.PI*2);ctx.fill();
+  }
+
+  const cx=toX(imuNow);
+  if(cx>=0&&cx<=w){
+    ctx.strokeStyle='rgba(255,255,255,0.8)'; ctx.lineWidth=1.5;
+    ctx.setLineDash([3,3]); ctx.beginPath();ctx.moveTo(cx,0);ctx.lineTo(cx,h);ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#fff'; ctx.beginPath();ctx.arc(cx,h/2,3,0,Math.PI*2);ctx.fill();
+  }
+  syncScrollbar();
+}
+
+// ── Horizontal scrollbar sync ─────────────────
+
+let _scrollSyncing = false;
+
+function syncScrollbar(){
+  const wrap  = document.getElementById('tlScrollWrap');
+  const inner = document.getElementById('tlScrollInner');
+  const totalPx = Math.ceil(totalDur() * S.tl.zoom);
+  inner.style.width = totalPx + 'px';
+  if(_scrollSyncing) return;
+  _scrollSyncing = true;
+  wrap.scrollLeft = S.tl.pan * S.tl.zoom;
+  _scrollSyncing = false;
+}
+
+document.getElementById('tlScrollWrap').addEventListener('scroll', e => {
+  if(_scrollSyncing) return;
+  _scrollSyncing = true;
+  S.tl.pan = e.target.scrollLeft / S.tl.zoom;
+  drawTimeline();
+  _scrollSyncing = false;
+});
+
+canvasWrap.addEventListener('click',e=>{
+  if(_panning)return;
+  const rect=canvasWrap.getBoundingClientRect();
+  const vt=fromX(e.clientX-rect.left)-S.syncOffset;
+  if(vid.src&&vt>=0)vid.currentTime=Math.max(0,vt);
+});
+canvasWrap.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const rect=canvasWrap.getBoundingClientRect();
+  const mx=e.clientX-rect.left, mt=fromX(mx);
+  S.tl.zoom=Math.max(1.5,Math.min(2000,S.tl.zoom*(e.deltaY<0?1.15:0.87)));
+  S.tl.pan=Math.max(0,mt-mx/S.tl.zoom);
+  drawTimeline();
+},{passive:false});
+
+let _panning=false,_panX=0,_panStart=0;
+canvasWrap.addEventListener('mousedown',e=>{
+  if(e.altKey||e.button===1){_panning=true;_panX=e.clientX;_panStart=S.tl.pan;e.preventDefault();}
+});
+window.addEventListener('mousemove',e=>{
+  if(!_panning)return;
+  S.tl.pan=Math.max(0,_panStart-(e.clientX-_panX)/S.tl.zoom); drawTimeline();
+});
+window.addEventListener('mouseup',()=>_panning=false);
+
+document.getElementById('zoomIn').addEventListener('click',()=>{S.tl.zoom=Math.min(2000,S.tl.zoom*1.5);drawTimeline();});
+document.getElementById('zoomOut').addEventListener('click',()=>{S.tl.zoom=Math.max(1.5,S.tl.zoom/1.5);drawTimeline();});
+document.getElementById('zoomFit').addEventListener('click',()=>{S.tl.fit=false;drawTimeline();});
+new ResizeObserver(()=>drawTimeline()).observe(canvasWrap);
+
+// ── IMU waveform resize handle ────────────────
+
+(()=>{
+  const handle = document.getElementById('tlResizeHandle');
+  const tlWrap  = document.getElementById('tlWrap');
+  const MIN_H = 80, MAX_H = 480;
+  let _resizing = false, _startY = 0, _startH = 0;
+
+  // Start the IMU panel at a comfortable default
+  tlWrap.style.height = '160px';
+
+  handle.addEventListener('mousedown', e=>{
+    _resizing = true;
+    _startY   = e.clientY;
+    _startH   = tlWrap.offsetHeight;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', e=>{
+    if(!_resizing) return;
+    const newH = Math.max(MIN_H, Math.min(MAX_H, _startH + (e.clientY - _startY)));
+    tlWrap.style.height = newH + 'px';
+    drawTimeline();
+  });
+  window.addEventListener('mouseup', ()=>{
+    if(!_resizing) return;
+    _resizing = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    drawTimeline();
+  });
+})();
+
+// ────────────────────────────────────────────────────────────
+// MARKERS
+// ────────────────────────────────────────────────────────────
+
+function renderMarkers(){
+  const list=document.getElementById('markersList');
+  const sorted=[...S.markers].sort((a,b)=>a.timestamp-b.timestamp);
+  document.getElementById('mCount').textContent=sorted.length;
+  document.getElementById('sessionPill').textContent=
+    (S.meta?.mode==='fullSession'?'Full Session':'Drill')+' · '+sorted.length+' markers';
+  list.innerHTML='';
+  if(!sorted.length){
+    list.innerHTML='<div class="empty-m"><div class="em">🎯</div><p>No markers yet.<br>Play the video and tap <strong>Mark Hit</strong>.</p></div>';
+    updateSelBar(); return;
+  }
+  const imuNow=Math.max(0,(vid.currentTime||0)+S.syncOffset);
+  sorted.forEach((m,i)=>{
+    const isSel=S.selected.has(m.id), isActive=Math.abs(m.timestamp-imuNow)<2&&vid.src;
+    const row=document.createElement('div');
+    row.className='marker-row'+(isSel?' sel':'')+(isActive?' active':'');
+    row.dataset.id=m.id;
+    row.innerHTML=`
+      <div class="m-chk"><span class="m-chk-mk">✓</span></div>
+      <span class="m-idx">${i+1}</span>
+      <div class="m-dot ${m.source}"></div>
+      <span class="m-time">${fmtTime(m.timestamp)}</span>
+      <div style="flex:1">
+        <select class="m-sel ${m.strokeType==='unknown'?'unk':''}">
+          ${STROKES.map(s=>`<option value="${s.id}"${s.id===m.strokeType?' selected':''}>${s.icon} ${s.label}</option>`).join('')}
+        </select>
+      </div>
+      <button class="m-del">✕</button>`;
+    row.querySelector('.m-time').addEventListener('click',e=>{
+      e.stopPropagation();
+      if(vid.src)vid.currentTime=Math.max(0,m.timestamp-S.syncOffset);
+    });
+    const sel = row.querySelector('.m-sel');
+    sel.addEventListener('change',e=>{
+      m.strokeType=e.target.value;
+      e.target.className='m-sel'+(m.strokeType==='unknown'?' unk':'');
+      renderMetaBar(); drawTimeline(); saveDraft();
+    });
+    // Prevent row's click→toggleSel from firing when interacting with the dropdown
+    sel.addEventListener('mousedown', e=>e.stopPropagation());
+    sel.addEventListener('click',     e=>e.stopPropagation());
+    row.querySelector('.m-del').addEventListener('click',e=>{
+      e.stopPropagation();
+      S.markers=S.markers.filter(x=>x.id!==m.id);
+      S.selected.delete(m.id); renderMetaBar(); renderMarkers(); updateSelBar(); drawTimeline(); saveDraft();
+    });
+    row.querySelector('.m-chk').addEventListener('click',e=>{e.stopPropagation();toggleSel(m.id);});
+    row.addEventListener('click',()=>toggleSel(m.id));
+    list.appendChild(row);
+  });
+  updateSelBar();
+}
+
+function toggleSel(id){
+  if(S.selected.has(id))S.selected.delete(id);else S.selected.add(id);
+  updateSelBar(); renderMarkers(); drawTimeline();
+}
+function clearSel(){ S.selected.clear(); updateSelBar(); renderMarkers(); drawTimeline(); }
+function updateSelBar(){
+  const n=S.selected.size;
+  document.getElementById('selBar').className='sel-bar'+(n?' on':'');
+  document.getElementById('selCount').textContent=`${n} selected`;
+}
+let _lastActive=null;
+function nearestMarkerHint(){
+  const t=Math.max(0,vid.currentTime+S.syncOffset);
+  let near=null,min=Infinity;
+  for(const m of S.markers){const d=Math.abs(m.timestamp-t);if(d<min){min=d;near=m;}}
+  if(!near||min>2.5||near.id===_lastActive)return;
+  _lastActive=near.id;
+  document.querySelector(`.marker-row[data-id="${near.id}"]`)?.scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+
+document.getElementById('markHitBtn').addEventListener('click',()=>{
+  const t=Math.max(0,vid.currentTime+S.syncOffset);
+  const m={id:uid(),timestamp:t,strokeType:'unknown',source:'manual'};
+  S.markers.push(m); renderMetaBar(); renderMarkers(); drawTimeline(); saveDraft();
+  setTimeout(()=>document.querySelector(`.marker-row[data-id="${m.id}"]`)?.scrollIntoView({block:'center',behavior:'smooth'}),40);
+  toast(`Marker @ ${fmtTime(t)}`,'ok');
+});
+document.getElementById('addBtn').addEventListener('click',()=>{
+  const lastT=S.markers.length?Math.max(...S.markers.map(m=>m.timestamp)):0;
+  const m={id:uid(),timestamp:lastT+5,strokeType:'unknown',source:'manual'};
+  S.markers.push(m); renderMetaBar(); renderMarkers(); drawTimeline(); saveDraft();
+  setTimeout(()=>document.querySelector(`.marker-row[data-id="${m.id}"]`)?.scrollIntoView({block:'center',behavior:'smooth'}),40);
+});
+document.getElementById('selAllBtn').addEventListener('click',()=>{
+  S.markers.forEach(m=>S.selected.add(m.id)); updateSelBar(); renderMarkers();
+});
+function deleteSel(){
+  S.markers=S.markers.filter(m=>!S.selected.has(m.id));
+  S.selected.clear(); renderMetaBar(); renderMarkers(); updateSelBar(); drawTimeline(); saveDraft();
+  toast('Deleted selected','info');
+}
+
+// ────────────────────────────────────────────────────────────
+// BULK ASSIGN
+// ────────────────────────────────────────────────────────────
+
+function openBulk(){
+  const n=S.selected.size;
+  document.getElementById('bulkSub').textContent=`Assign type to ${n} marker${n!==1?'s':''}`;
+  const g=document.getElementById('strokeGrid'); g.innerHTML='';
+  for(const s of STROKES){
+    const b=document.createElement('button');b.className='stroke-opt';
+    b.innerHTML=`<span>${s.icon}</span>${s.label}`;
+    b.addEventListener('click',()=>bulkAssign(s.id)); g.appendChild(b);
+  }
+  document.getElementById('bulkBackdrop').classList.add('on');
+}
+function closeBulk(){ document.getElementById('bulkBackdrop').classList.remove('on'); }
+function bulkAssign(type){
+  for(const id of S.selected){const m=S.markers.find(x=>x.id===id);if(m)m.strokeType=type;}
+  S.selected.clear(); closeBulk(); renderMetaBar(); renderMarkers(); updateSelBar(); drawTimeline(); saveDraft();
+  toast(`Assigned ${STROKE_MAP[type]?.label||type}`,'ok');
+}
+document.getElementById('bulkBackdrop').addEventListener('click',e=>{if(e.target===e.currentTarget)closeBulk();});
+
+// ────────────────────────────────────────────────────────────
+// FILE INPUTS (manual load fallback)
+// ────────────────────────────────────────────────────────────
+
+function markOk(card,chk){document.getElementById(card)?.classList.add('ok');const e=document.getElementById(chk);if(e)e.textContent='✓';}
+function pickJson(){ document.getElementById('fiJson').click(); }
+function pickCsv(){  document.getElementById('fiCsv').click(); }
+function pickVideo(){ document.getElementById('fiVid').click(); }
+
+document.getElementById('fiJson').addEventListener('change',async e=>{
+  const f=e.target.files[0];if(!f)return;loadJSON(await f.text(),null);e.target.value='';
+});
+document.getElementById('fiCsv').addEventListener('change',async e=>{
+  const f=e.target.files[0];if(!f)return;await loadCSV(await f.text());e.target.value='';
+});
+document.getElementById('fiVid').addEventListener('change',e=>{
+  const f=e.target.files[0];if(!f)return;loadVideoFile(f);e.target.value='';
+});
+document.getElementById('changeVidBtn').addEventListener('click',()=>{
+  document.getElementById('fiVid').click();
+});
+document.getElementById('fiAny').addEventListener('change',async e=>{
+  await handleFiles([...e.target.files]);e.target.value='';
+});
+
+// Drop zone
+const dropZone=document.getElementById('dropZone');
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('over');});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('over'));
+dropZone.addEventListener('drop',async e=>{e.preventDefault();dropZone.classList.remove('over');await handleFiles([...e.dataTransfer.files]);});
+dropZone.addEventListener('click',()=>document.getElementById('fiAny').click());
+
+document.getElementById('videoPh').addEventListener('dragover',e=>e.preventDefault());
+document.getElementById('videoPh').addEventListener('drop',async e=>{
+  e.preventDefault();const f=e.dataTransfer.files[0];if(f?.type.startsWith('video/'))loadVideoFile(f);
+});
+document.body.addEventListener('dragover',e=>e.preventDefault());
+document.body.addEventListener('drop',async e=>{e.preventDefault();await handleFiles([...e.dataTransfer.files]);});
+
+async function handleFiles(files){
+  for(const f of files){
+    const n=f.name.toLowerCase();
+    if(n.endsWith('.json'))                  { loadJSON(await f.text(),null); }
+    else if(n.endsWith('_classified.csv'))   { await loadClassifiedCSV(await f.text()); }
+    else if(n.endsWith('.csv'))              { await loadCSV(await f.text()); }
+    else if(f.type.startsWith('video/'))     { loadVideoFile(f); }
+  }
+}
+
+// ────────────────────────────────────────────────────────────
+// KEYBOARD
+// ────────────────────────────────────────────────────────────
+
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
+  if(e.code==='Space'){e.preventDefault();vid.paused?vid.play():vid.pause();updatePlayBtn();}
+  else if(S.validating && e.code==='KeyY'){ e.preventDefault(); setVerdict('correct'); }
+  else if(S.validating && e.code==='KeyN'){ e.preventDefault(); setVerdict('wrong'); }
+  else if(S.validating && e.code==='KeyD'){ e.preventDefault(); setVerdict('duplicate'); }
+  else if(S.validating && e.code==='KeyS'){ e.preventDefault(); setVerdict('skip'); }
+  else if(S.validating && e.code==='ArrowLeft'){ e.preventDefault(); navVal(-1); }
+  else if(S.validating && e.code==='ArrowRight'){ e.preventDefault(); navVal(+1); }
+  else if(!S.validating && e.code==='KeyM'){if(!document.getElementById('markHitBtn').disabled)document.getElementById('markHitBtn').click();}
+  else if(!S.validating && e.code==='ArrowLeft'){e.preventDefault();vid.currentTime=Math.max(0,vid.currentTime-(e.shiftKey?5:1));updateControls();}
+  else if(!S.validating && e.code==='ArrowRight'){e.preventDefault();vid.currentTime=Math.min(vid.duration||0,vid.currentTime+(e.shiftKey?5:1));updateControls();}
+  else if(e.code==='Escape'){if(S.validating)exitValidation();else clearSel();}
+  else if((e.metaKey||e.ctrlKey)&&e.code==='KeyS'){e.preventDefault();saveJSON();}
+  else if((e.metaKey||e.ctrlKey)&&e.code==='KeyA'){e.preventDefault();if(S.sessionId&&!S.validating)document.getElementById('selAllBtn').click();}
+});
+
+// ────────────────────────────────────────────────────────────
+// CLASSIFIED CSV + VALIDATION MODE
+// ────────────────────────────────────────────────────────────
+
+async function loadClassifiedCSV(text){
+  const lines = text.split('\n');
+  if(lines.length < 2){ toast('Classified CSV empty','err'); return; }
+  const header = lines[0].trim().split(',');
+
+  const col = name => header.indexOf(name);
+  const iTs    = col('timestamp_s');
+  const iOrig  = col('original_label');
+  const iPred  = col('predicted_stroke');
+  const iConf  = col('confidence');
+  const iAbove = col('above_threshold');
+  const iTop1  = col('top1'), iConf1 = col('conf1');
+  const iTop2  = col('top2'), iConf2 = col('conf2');
+  const iTop3  = col('top3'), iConf3 = col('conf3');
+
+  // Validate header
+  if(iTs<0 || iPred<0 || iAbove<0){
+    toast('Not a valid classified CSV (missing columns)','err'); return;
+  }
+
+  const preds = [];
+  for(let i=1; i<lines.length; i++){
+    const cols = lines[i].trim().split(',');
+    if(cols.length < 5) continue;
+    if(iAbove>=0 && cols[iAbove] !== 'yes') continue;
+    const pred = cols[iPred] ?? '';
+    if(pred === 'ERROR' || pred === '') continue;
+
+    const top3 = [];
+    if(iTop1>=0 && cols[iTop1]) top3.push({ label:cols[iTop1], conf:parseFloat(cols[iConf1])||0 });
+    if(iTop2>=0 && cols[iTop2]) top3.push({ label:cols[iTop2], conf:parseFloat(cols[iConf2])||0 });
+    if(iTop3>=0 && cols[iTop3]) top3.push({ label:cols[iTop3], conf:parseFloat(cols[iConf3])||0 });
+
+    preds.push({
+      timestamp:       parseFloat(cols[iTs] ?? '0') || 0,
+      originalLabel:   iOrig>=0 ? (cols[iOrig]||'') : '',
+      predictedStroke: pred,
+      confidence:      parseFloat(cols[iConf] ?? '0') || 0,
+      top3,
+      verdict:         null,
+      correctedLabel:  null,   // set when user picks a different stroke
+      reviewMode:      null,   // 'auto' (accepted by threshold) | 'manual' (human verdict)
+    });
+  }
+
+  if(!preds.length){ toast('No above-threshold predictions in CSV','err'); return; }
+
+  S.predictions = preds;
+  S.validIdx = 0;
+  const resumed = restoreValProgress();
+  document.getElementById('valLoadStatus').textContent = `${preds.length} predictions loaded`;
+  document.getElementById('validateBtn').style.display = '';
+  if(resumed){
+    const done = preds.filter(p=>p.verdict!==null).length;
+    toast(`Resumed: ${done}/${preds.length} already reviewed`,'info');
+  } else {
+    toast(`${preds.length} predictions ready — click Validate to start`,'ok');
+  }
+}
+
+function enterValidation(){
+  if(!S.predictions.length){ toast('Load a classified CSV first','err'); return; }
+  S.validating = true;
+  document.getElementById('markersList').style.display = 'none';
+  document.getElementById('selBar').style.display = '';   // clear any inline style
+  document.getElementById('selBar').className = 'sel-bar'; // hide via class only
+  document.getElementById('valPanel').classList.add('on');
+  document.getElementById('validateBtn').textContent = '📋 Labels';
+  renderValCard();
+  seekToVal();
+}
+
+function exitValidation(){
+  S.validating = false;
+  document.getElementById('markersList').style.display = '';
+  document.getElementById('selBar').className = 'sel-bar' + (S.selected.size?' on':'');
+  document.getElementById('valPanel').classList.remove('on');
+  document.getElementById('validateBtn').textContent = '🔍 Validate';
+}
+
+function seekToVal(){
+  const p = S.predictions[S.validIdx];
+  if(!p || !vid.src) return;
+  // Seek to 0.5s before the stroke so user can see the swing start
+  vid.currentTime = Math.max(0, p.timestamp - S.syncOffset - 0.5);
+}
+
+// correctedLabel is null for 'correct' or 'skip'; the chosen stroke id for 'wrong'
+function setVerdict(verdict, correctedLabel = null){
+  const p = S.predictions[S.validIdx];
+  if(!p) return;
+  p.verdict        = verdict;
+  p.correctedLabel = correctedLabel;
+  p.reviewMode     = 'manual';   // human verdicts always win over auto-accept
+  saveValProgress();
+  // Advance to next unvalidated prediction
+  let next = -1;
+  for(let i = S.validIdx+1; i < S.predictions.length; i++){
+    if(S.predictions[i].verdict === null){ next = i; break; }
+  }
+  if(next < 0){
+    for(let i = 0; i < S.validIdx; i++){
+      if(S.predictions[i].verdict === null){ next = i; break; }
+    }
+  }
+  if(next >= 0){
+    S.validIdx = next;
+    renderValCard();
+    seekToVal();
+  } else {
+    renderValCard();
+    const correct = S.predictions.filter(p=>p.verdict==='correct').length;
+    const wrong   = S.predictions.filter(p=>p.verdict==='wrong').length;
+    const dup     = S.predictions.filter(p=>p.verdict==='duplicate').length;
+    const acc = correct+wrong > 0 ? Math.round(correct/(correct+wrong)*100) : 0;
+    toast(`All done! ✓${correct} ✗${wrong} 🔁${dup} — ${acc}% accuracy. Click Export.`,'ok');
+  }
+  updateValProgress();
+}
+
+function navVal(delta){
+  const next = S.validIdx + delta;
+  if(next < 0 || next >= S.predictions.length) return;
+  S.validIdx = next;
+  renderValCard();
+  seekToVal();
+}
+
+// ── Active-learning auto-accept ──────────────────────────────────
+// A prediction is auto-acceptable when the model is confident (conf ≥ thr)
+// AND unambiguous (top1 − top2 ≥ margin). Everything else stays for human
+// review — those uncertain rows are exactly the training signal we need.
+
+function autoThresholds(){
+  const conf   = parseFloat(document.getElementById('autoConfThr').value)   || 0.85;
+  const margin = parseFloat(document.getElementById('autoMarginThr').value) || 0.30;
+  return { conf, margin };
+}
+
+function autoAcceptEligible(p, thr){
+  const c1 = p.top3[0]?.conf ?? p.confidence;
+  const c2 = p.top3[1]?.conf ?? 0;
+  return c1 >= thr.conf && (c1 - c2) >= thr.margin;
+}
+
+function refreshAutoAcceptBar(){
+  const thr = autoThresholds();
+  const eligible = S.predictions.filter(p => p.verdict === null && autoAcceptEligible(p, thr)).length;
+  const autoDone = S.predictions.filter(p => p.reviewMode === 'auto').length;
+  document.getElementById('autoAcceptCount').textContent = eligible;
+  document.getElementById('autoAcceptBtn').disabled = eligible === 0;
+  document.getElementById('undoAutoBtn').style.display = autoDone ? '' : 'none';
+}
+
+function runAutoAccept(){
+  const thr = autoThresholds();
+  let n = 0;
+  for(const p of S.predictions){
+    if(p.verdict !== null) continue;               // never touch human verdicts
+    if(!autoAcceptEligible(p, thr)) continue;
+    p.verdict        = 'correct';
+    p.correctedLabel = null;
+    p.reviewMode     = 'auto';
+    n++;
+  }
+  if(!n){ toast('Nothing eligible to auto-accept','info'); return; }
+  saveValProgress();
+  const pending = S.predictions.filter(p=>p.verdict===null).length;
+  // Jump to the first row that still needs human eyes.
+  const first = S.predictions.findIndex(p=>p.verdict===null);
+  if(first >= 0){ S.validIdx = first; }
+  renderValCard();
+  seekToVal();
+  updateValProgress();
+  toast(`⚡ Auto-accepted ${n} (conf ≥ ${thr.conf}, margin ≥ ${thr.margin}) — ${pending} left for review`,'ok');
+}
+
+function undoAutoAccept(){
+  let n = 0;
+  for(const p of S.predictions){
+    if(p.reviewMode !== 'auto') continue;
+    p.verdict = null; p.correctedLabel = null; p.reviewMode = null;
+    n++;
+  }
+  if(!n) return;
+  saveValProgress();
+  renderValCard();
+  updateValProgress();
+  toast(`↩ Reverted ${n} auto-accepted rows`,'info');
+}
+
+function updateValProgress(){
+  const total   = S.predictions.length;
+  const done    = S.predictions.filter(p=>p.verdict!==null).length;
+  const correct = S.predictions.filter(p=>p.verdict==='correct').length;
+  const wrong   = S.predictions.filter(p=>p.verdict==='wrong').length;
+  const dup     = S.predictions.filter(p=>p.verdict==='duplicate').length;
+  const auto    = S.predictions.filter(p=>p.reviewMode==='auto').length;
+  document.getElementById('valProgress').innerHTML =
+    `<strong>${done}/${total}</strong> · ` +
+    `<strong style="color:var(--ok)">✓${correct}</strong> · ` +
+    `<strong style="color:var(--danger)">✗${wrong}</strong>` +
+    (dup ? ` · <strong style="color:var(--primary)">🔁${dup}</strong>` : '') +
+    (auto ? ` · <strong style="color:var(--warn,#e6a817)">⚡${auto}</strong>` : '');
+  refreshAutoAcceptBar();
+}
+
+function renderValCard(){
+  const card  = document.getElementById('valCard');
+  const idx   = S.validIdx;
+  const total = S.predictions.length;
+
+  document.getElementById('valIdxDisplay').textContent = total ? `${idx+1} / ${total}` : '—';
+  document.getElementById('valPrevBtn').disabled = idx <= 0;
+  document.getElementById('valNextBtn').disabled = idx >= total-1;
+  updateValProgress();
+
+  if(!total){
+    card.innerHTML='<div style="text-align:center;color:var(--dim);padding:48px 20px;line-height:2">Load a <strong>_classified.csv</strong><br>then click <strong>Validate</strong>.</div>';
+    return;
+  }
+
+  const p = S.predictions[idx];
+  if(!p){ card.innerHTML=''; return; }
+
+  const s       = STROKE_MAP[p.predictedStroke] || { icon:'❓', label: p.predictedStroke };
+  const confPct = Math.round(p.confidence * 100);
+  const confCls = confPct >= 75 ? 'hi' : confPct >= 60 ? 'mid' : 'lo';
+
+  let verdictTag = '';
+  if(p.verdict === 'correct'){
+    const autoMark = p.reviewMode === 'auto' ? ' ⚡auto' : '';
+    verdictTag = `<span style="color:var(--ok);font-size:11px;margin-left:auto">✓ Correct${autoMark}</span>`;
+  } else if(p.verdict === 'wrong'){
+    const cl = p.correctedLabel ? (STROKE_MAP[p.correctedLabel]?.icon || '') + ' ' + (STROKE_MAP[p.correctedLabel]?.label || p.correctedLabel) : '';
+    verdictTag = `<span style="color:var(--danger);font-size:11px;margin-left:auto">✗ Wrong${cl ? ' → '+cl : ''}</span>`;
+  } else if(p.verdict === 'duplicate'){
+    verdictTag = `<span style="color:var(--primary);font-size:11px;margin-left:auto">🔁 Duplicate</span>`;
+  } else if(p.verdict === 'skip'){
+    verdictTag = `<span style="color:var(--faint);font-size:11px;margin-left:auto">— Skipped</span>`;
+  }
+
+  const seekTs = p.timestamp - 0.5;
+  const top3HTML = p.top3.map(t=>{
+    const ts = STROKE_MAP[t.label] || { icon:'?', label: t.label };
+    const pct = Math.round(t.conf*100);
+    return `<div class="top3-row">
+      <span class="top3-label">${ts.icon} ${ts.label}</span>
+      <div class="top3-bar-wrap"><div class="top3-bar-fill" style="width:${pct}%"></div></div>
+      <span class="top3-pct">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  // Build stroke grid — clicking predicted stroke = correct, any other = wrong + corrected label
+  const strokeGridHTML = STROKES.filter(st => st.id !== 'unknown').map(st => {
+    const isPred    = st.id === p.predictedStroke;
+    const isPicked  = p.verdict === 'correct'  && isPred;
+    const isWrong   = p.verdict === 'wrong'    && st.id === p.correctedLabel;
+    let cls = isPred ? 'is-pred' : '';
+    if(isPicked) cls = 'picked-ok';
+    if(isWrong)  cls = 'picked-wrong';
+    return `<button class="val-stroke-btn ${cls}" data-label="${st.id}">
+      <span class="vsb-icon">${st.icon}</span>
+      <span class="vsb-lbl">${st.label}</span>
+    </button>`;
+  }).join('');
+
+  card.innerHTML = `
+    <div class="val-ts">
+      <span class="val-ts-time" data-seek="${seekTs}">${fmtTime(p.timestamp)}</span>
+      <span class="val-ts-seek" data-seek="${seekTs}">▶ Seek</span>
+      ${verdictTag}
+    </div>
+    <div>
+      <div class="val-section-label">AI Prediction</div>
+      <div class="val-prediction">
+        <span class="val-stroke-icon">${s.icon}</span>
+        <div style="flex:1;min-width:0">
+          <div class="val-stroke-name">${s.label}</div>
+          ${p.originalLabel ? `<div class="val-orig">Original: <em>${esc(p.originalLabel)}</em></div>` : ''}
+        </div>
+        <span class="conf-badge ${confCls}">${confPct}%</span>
+      </div>
+    </div>
+    ${top3HTML ? `<div>
+      <div class="val-section-label">Top 3 Confidence</div>
+      <div class="top3-list">${top3HTML}</div>
+    </div>` : ''}
+    <div>
+      <div class="val-section-label">Tap the correct stroke — highlighted = AI prediction</div>
+      <div class="val-stroke-grid">${strokeGridHTML}</div>
+      <div class="val-skip-row">
+        <span class="skip-hint">Y=✓ · N=✗ · D=dup · S=skip</span>
+        <button class="btn v-dup" data-verdict="duplicate" style="padding:4px 10px;font-size:11px">🔁 Dup</button>
+        <button class="btn v-skip" data-verdict="skip" style="padding:4px 10px;font-size:11px">Skip →</button>
+      </div>
+    </div>`;
+
+  // Wire seek buttons
+  card.querySelectorAll('[data-seek]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      if(vid.src) vid.currentTime = Math.max(0, parseFloat(el.dataset.seek) - S.syncOffset);
+    });
+  });
+  // Wire stroke grid — predicted = correct, other = wrong + corrected label
+  card.querySelectorAll('.val-stroke-btn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const label = btn.dataset.label;
+      if(label === p.predictedStroke){
+        setVerdict('correct', null);
+      } else {
+        setVerdict('wrong', label);
+      }
+    });
+  });
+  // Wire dup + skip buttons
+  card.querySelector('[data-verdict="duplicate"]')?.addEventListener('click', ()=> setVerdict('duplicate', null));
+  card.querySelector('[data-verdict="skip"]')?.addEventListener('click', ()=> setVerdict('skip', null));
+}
+
+// ────────────────────────────────────────────────────────────
+// VALIDATION PROGRESS PERSISTENCE
+// ────────────────────────────────────────────────────────────
+
+const VAL_PREF = 'pl_val_';
+
+function saveValProgress(){
+  if(!S.sessionId || !S.predictions.length) return;
+  try{
+    localStorage.setItem(VAL_PREF + S.sessionId, JSON.stringify({
+      snap: S.predictions.map(p=>({ verdict: p.verdict, correctedLabel: p.correctedLabel, reviewMode: p.reviewMode })),
+      idx:  S.validIdx,
+      ts:   Date.now(),
+    }));
+  }catch(_){}
+}
+
+function clearValProgress(){
+  if(S.sessionId) try{ localStorage.removeItem(VAL_PREF + S.sessionId); }catch(_){}
+}
+
+function restoreValProgress(){
+  if(!S.sessionId || !S.predictions.length) return false;
+  try{
+    const raw = localStorage.getItem(VAL_PREF + S.sessionId);
+    if(!raw) return false;
+    const saved = JSON.parse(raw);
+    if(!saved?.snap || saved.snap.length !== S.predictions.length) return false;
+    const done = saved.snap.filter(x => x.verdict !== null).length;
+    if(!done) return false;
+    const age   = Math.round((Date.now() - saved.ts) / 60000);
+    const label = age < 60 ? `${age}m ago` : `${Math.round(age/60)}h ago`;
+    if(!confirm(`Resume validation? (${done}/${S.predictions.length} reviewed, saved ${label})`)) return false;
+    for(let i = 0; i < S.predictions.length; i++){
+      S.predictions[i].verdict        = saved.snap[i].verdict;
+      S.predictions[i].correctedLabel = saved.snap[i].correctedLabel;
+      S.predictions[i].reviewMode     = saved.snap[i].reviewMode ?? (saved.snap[i].verdict !== null ? 'manual' : null);
+    }
+    // Jump to first un-reviewed prediction, or saved index
+    const firstNull = S.predictions.findIndex(p => p.verdict === null);
+    S.validIdx = firstNull >= 0 ? firstNull : (saved.idx ?? 0);
+    return true;
+  }catch(_){ return false; }
+}
+
+function exportVerdicts(){
+  if(!S.predictions.length){ toast('No predictions to export','err'); return; }
+
+  // ── 1. Validation CSV ────────────────────────────────────────
+  // review_mode (auto|manual) is appended last so name-based readers
+  // (apply_validation.py uses DictReader) keep working unchanged.
+  const rows = ['timestamp_s,original_label,predicted_stroke,confidence,verdict,corrected_label,top1,conf1,top2,conf2,top3,conf3,review_mode'];
+  for(const p of S.predictions){
+    const t = p.top3;
+    rows.push([
+      p.timestamp.toFixed(4),
+      p.originalLabel,
+      p.predictedStroke,
+      p.confidence.toFixed(4),
+      p.verdict || '',
+      p.correctedLabel || '',
+      t[0]?.label||'', t[0]?.conf!=null ? t[0].conf.toFixed(3) : '',
+      t[1]?.label||'', t[1]?.conf!=null ? t[1].conf.toFixed(3) : '',
+      t[2]?.label||'', t[2]?.conf!=null ? t[2].conf.toFixed(3) : '',
+      p.reviewMode || '',
+    ].join(','));
+  }
+  const csvA = document.createElement('a');
+  csvA.href = URL.createObjectURL(new Blob([rows.join('\n')+'\n'], {type:'text/csv'}));
+  csvA.download = S.sessionId ? `${S.sessionId}_validation.csv` : 'validation.csv';
+  csvA.click();
+
+  // ── 2. Training JSON (only verified strokes with an effective label) ──
+  const trainStrokes = S.predictions
+    .filter(p => p.verdict === 'correct' || (p.verdict === 'wrong' && p.correctedLabel))
+    .map(p => ({
+      timestamp:       parseFloat(p.timestamp.toFixed(4)),
+      effectiveLabel:  p.verdict === 'correct' ? p.predictedStroke : p.correctedLabel,
+      predictedStroke: p.predictedStroke,
+      originalLabel:   p.originalLabel || '',
+      confidence:      parseFloat(p.confidence.toFixed(4)),
+      verdict:         p.verdict,
+      reviewMode:      p.reviewMode || 'manual',
+    }));
+
+  const correct   = S.predictions.filter(p=>p.verdict==='correct').length;
+  const wrong     = S.predictions.filter(p=>p.verdict==='wrong').length;
+  const dup       = S.predictions.filter(p=>p.verdict==='duplicate').length;
+  const relabeled = S.predictions.filter(p=>p.verdict==='wrong' && p.correctedLabel).length;
+
+  const jsonOut = {
+    sessionId:        S.sessionId,
+    playerId:         S.meta?.playerId || S.meta?.player_id || null,
+    date:             S.meta?.date || null,
+    samplingHz:       S.meta?.samplingHz || S.meta?.sampling_hz || 100,
+    exportedAt:       new Date().toISOString(),
+    totalPredictions: S.predictions.length,
+    validated:        S.predictions.filter(p=>p.verdict!==null).length,
+    correct,
+    wrong,
+    duplicate:        dup,
+    autoAccepted:     S.predictions.filter(p=>p.reviewMode==='auto').length,
+    trainingStrokes,
+  };
+
+  // Small delay so browser doesn't block the second download
+  setTimeout(()=>{
+    const jsonA = document.createElement('a');
+    jsonA.href = URL.createObjectURL(new Blob([JSON.stringify(jsonOut,null,2)], {type:'application/json'}));
+    jsonA.download = S.sessionId ? `${S.sessionId}_training.json` : 'training.json';
+    jsonA.click();
+  }, 300);
+
+  clearValProgress();
+  toast(`Exported CSV + JSON · ✓${correct} ✗${wrong} 🔁${dup} · ${relabeled} relabeled`,'ok');
+}
+
+// Wire up validation buttons
+document.getElementById('loadClassifiedBtn').addEventListener('click', ()=> document.getElementById('fiClassified').click());
+document.getElementById('validateBtn').addEventListener('click', ()=>{ S.validating ? exitValidation() : enterValidation(); });
+document.getElementById('exitValBtn').addEventListener('click', exitValidation);
+document.getElementById('valPrevBtn').addEventListener('click', ()=> navVal(-1));
+document.getElementById('valNextBtn').addEventListener('click', ()=> navVal(+1));
+document.getElementById('exportVerdictsBtn').addEventListener('click', exportVerdicts);
+document.getElementById('fiClassified').addEventListener('change', async e=>{
+  const f = e.target.files[0]; if(!f) return;
+  await loadClassifiedCSV(await f.text()); e.target.value='';
+});
+
+// Active-learning triage controls
+document.getElementById('autoAcceptBtn').addEventListener('click', runAutoAccept);
+document.getElementById('undoAutoBtn').addEventListener('click', undoAutoAccept);
+document.getElementById('autoConfThr').addEventListener('input', refreshAutoAcceptBar);
+document.getElementById('autoMarginThr').addEventListener('input', refreshAutoAcceptBar);
+</script>
+</body>
+</html>

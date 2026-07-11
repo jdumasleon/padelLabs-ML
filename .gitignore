@@ -103,3 +103,5 @@ __pycache__/
 /raw-sessions
 reviewed in QC/
 label-studio-import.json
+# SSL pretraining harvest cache (regenerate with scripts/ssl_pretrain.py --reharvest)
+/ssl-cache/
