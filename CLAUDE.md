@@ -179,15 +179,45 @@ python3 scripts/extract_windows.py \
 
 ### 4.3 Apply validation corrections
 
-The default extraction uses the marker's `strokeType` directly. To apply the
-video-validated corrections from a `_validation.csv`, the session JSON's
-marker `strokeType` must be updated first (no script does this automatically
-today — if needed, write a one-off patch that walks the validation CSV and
-rewrites the JSON markers, then re-run `extract_windows.py`).
+The default extraction uses the marker's `strokeType` directly, so the video
+verdicts must be written onto the session JSON's markers **before** running
+`extract_windows.py`. `scripts/apply_validation.py` does this:
 
-Alternatively, use `scripts/cluster_unknowns.py --apply` — it accepts a
+```bash
+# always dry-run first — it rewrites session JSONs in place
+python3 scripts/apply_validation.py --sessions ../dataCollection --dry-run
+python3 scripts/apply_validation.py --sessions ../dataCollection
+```
+
+- Patches every JSON that has a sibling `*_validation.csv`, or one session with
+  `--json <path>`.
+- Snapshots the untouched original to `<sessionId>.json.orig` on first run, so the
+  presence of a `.orig` file is how you tell a session has already been applied.
+- Re-grouping is deterministic, so re-running on an already-applied session is
+  idempotent.
+- Matches reviewer rows to bursts on `timestamp_s` (the burst anchor) within
+  `MATCH_TOL` = 0.03s. Bursts with no matching row become `unknown` and are
+  excluded from training rather than guessed at.
+- `verdict=correct` keeps `predicted_stroke`; `verdict=wrong` takes
+  `corrected_label`; `skip`/`duplicate`/blank → `unknown`.
+
+Expected `_validation.csv` columns (current tool format — older exports using
+`video_time,session_s,predicted,…` are rejected with "missing columns" and must be
+re-exported from the current tool):
+
+```
+timestamp_s, original_label, predicted_stroke, confidence, verdict,
+corrected_label, top1, conf1, top2, conf2, top3, conf3  [, review_mode]
+```
+
+Alternatively, `scripts/cluster_unknowns.py --apply` accepts a
 `cluster_summary.csv` with corrected labels and writes them back into the
 session JSON.
+
+> **Human verdicts outrank the grouping heuristics.** `extract_windows.py` never
+> merges or drops two bursts that carry different human labels — a reviewer who
+> labelled them separately saw two strokes. Without that guard the burst-merge
+> and preparation-dedup passes silently rewrote ~1.4% of validated labels.
 
 ### 4.4 Verify the integration
 
