@@ -7,7 +7,9 @@ and extracts per-stroke 100-sample windows (300ms pre-peak + 700ms post-peak at 
 
 Burst grouping: multiple IMU markers within 1.2s of each other are treated as a
 single physical stroke. The first non-unknown label in the burst wins. The window
-is anchored on the first peak in the burst. `burst_size` is saved as metadata.
+is anchored on the strongest accelMag peak inside the burst span (the ball contact),
+NOT on the marker timestamps — markers are stamped when classification finishes, so
+they lag the contact by ~0.7-1.0s. `burst_size` is saved as metadata.
 
 Output folder structure (Create ML Activity Classifier format):
     labeled-strokes/
@@ -67,6 +69,64 @@ OUTPUT_COLS  = ["timestamp"] + FEATURE_COLS
 UNKNOWN_WINDOW_STRIDE = 2.0   # seconds between background (unknown) windows
 UNKNOWN_GUARD_SECONDS = 1.5   # skip windows within this distance of any marker
 
+# Peak search span around a burst, in seconds.
+#
+# Markers LAG the ball contact. A marker is stamped when classification finishes —
+# after the detector's 700ms post-peak buffer plus CoreML inference — so it lands
+# ~0.7-1.0s AFTER the contact it describes, and the lag varies with inference time.
+# (Measured: median accelMag at marker timestamps is only ~1.1g, i.e. the swing is
+# already over by then.) The search therefore has to reach well BACK from the first
+# marker, not forward from it.
+#
+# Sweeping PEAK_SEARCH_PRE on a real session, mean accelMag at the resolved anchor:
+#   0.3s → 3.80g   0.5s → 5.18g   0.7s → 8.19g   0.9s → 8.34g   1.5s → 8.37g
+# It plateaus at 0.9s, matching the expected lag. Going wider only risks reaching
+# into the previous stroke.
+PEAK_SEARCH_PRE  = 0.9        # seconds before the first marker in the burst
+PEAK_SEARCH_POST = 0.7        # seconds after the last marker in the burst
+FALLBACK_PEAK_SEARCH = 0.2    # ± seconds when no burst span is available
+
+# Two bursts whose resolved contact peaks are closer than this are the same physical
+# stroke — burst grouping is anchored on the FIRST marker, so a long preparation ramp
+# can push the tail of one swing past the burst_gap boundary and open a second burst
+# that then resolves onto the very same contact peak. Must match the watch-side
+# minimumSpikeSeparation in MotionService.swift.
+MIN_PEAK_SEPARATION = 0.6     # seconds
+
+# ── Marker format ─────────────────────────────────────────────────────────────
+# Two generations of recordings exist and they need different handling:
+#
+#   "crossing"  (watch builds before f06e54c) — the detector fired on every
+#               threshold crossing, so ONE swing produced several markers spread
+#               over ~1.2s, and each was stamped when classification finished,
+#               ~0.7-1.0s after the contact. These need burst-grouping, the
+#               preparation-spike dedup, and a wide backward peak search.
+#
+#   "peak"      (f06e54c onward) — the peak-picker emits ONE marker per swing,
+#               stamped at the contact itself. Burst-grouping this format is
+#               actively destructive: two markers 1.2s apart are two different
+#               strokes, and grouping them deletes one. Measured on a real
+#               session, the 1.2s grouping merged 56 of 627 markers and the
+#               preparation dedup dropped 17 more — a 12% loss of real strokes.
+#
+# The formats are trivially separable: the peak-picker enforces a hard
+# MIN_PEAK_SEPARATION refractory, so a "peak" session has essentially no marker
+# gaps below it, while a "crossing" session is full of them (~40%).
+PEAK_FORMAT_MAX_SUBGAP_FRACTION = 0.02
+PEAK_FORMAT_MIN_MARKERS = 20   # too few markers to judge → assume legacy
+PEAK_STAMPED_SEARCH_PRE = 0.2  # the marker IS the contact; only nudge for jitter
+
+
+def markers_are_peak_stamped(markers: list[dict]) -> bool:
+    """True when markers came from the peak-picking detector (one per swing)."""
+    stamps = sorted(
+        float(m["timestamp"]) for m in markers if float(m.get("timestamp", -1)) >= 0
+    )
+    if len(stamps) < PEAK_FORMAT_MIN_MARKERS:
+        return False
+    gaps = np.diff(stamps)
+    return float(np.mean(gaps < MIN_PEAK_SEPARATION)) <= PEAK_FORMAT_MAX_SUBGAP_FRACTION
+
 # All stroke types as they appear in the JSON (snake_case)
 VALID_STROKE_TYPES = [
     "smash",
@@ -94,11 +154,12 @@ def group_markers_into_bursts(markers: list[dict], burst_gap: float) -> list[dic
       - Sort by timestamp.
       - Any marker within burst_gap of the previous one is part of the same burst.
       - Winner = first non-unknown label in the burst (falls back to 'unknown').
-      - Anchor timestamp = first peak in the burst.
+      - Anchor timestamp = first marker (kept only as a coarse locator; the true
+        window anchor is resolved later by find_peak_index over [span_start, span_end]).
       - burst_size = number of raw markers in the burst.
 
     Returns a list of representative marker dicts with keys:
-        timestamp, strokeType, burst_size
+        timestamp, strokeType, burst_size, span_start, span_end
     """
     if not markers:
         return []
@@ -125,8 +186,8 @@ def group_markers_into_bursts(markers: list[dict], burst_gap: float) -> list[dic
 
     representatives = []
     for burst in bursts:
-        # Anchor = first peak in burst
-        anchor_ts = float(burst[0]["timestamp"])
+        span_start = float(burst[0]["timestamp"])
+        span_end   = float(burst[-1]["timestamp"])
         burst_size = len(burst)
 
         # Pick first non-unknown label
@@ -138,9 +199,17 @@ def group_markers_into_bursts(markers: list[dict], burst_gap: float) -> list[dic
                 break
 
         representatives.append({
-            "timestamp": anchor_ts,
+            "timestamp": span_start,
             "strokeType": label,
             "burst_size": burst_size,
+            "span_start": span_start,
+            "span_end": span_end,
+            # Timestamps of the markers carrying this burst's label — used to break
+            # label ties when two bursts merge onto the same contact peak.
+            "label_ts": [
+                float(m["timestamp"]) for m in burst
+                if str(m.get("strokeType", "")).strip() == label
+            ],
         })
 
     return representatives
@@ -160,39 +229,47 @@ def dedup_preparation_bursts(
     burst[i]'s accelMag peak < weak_ratio × burst[i+1]'s accelMag peak,
     then burst[i] is the preparation movement → drop it.
 
-    Uses the raw IMU CSV to look up actual peak magnitudes.
+    A burst carrying a human label that disagrees with its neighbour's is never dropped:
+    a reviewer labelled two strokes there, so neither is a backswing.
+
+    Uses the raw IMU CSV to look up actual peak magnitudes over each burst's span.
     """
     if len(bursts) <= 1:
         return bursts
 
-    def peak_mag(ts: float) -> float:
-        idx = int((imu_df["timestamp"] - ts).abs().idxmin())
-        search = imu_df.iloc[max(0, idx - 30): idx + 50]
-        mag = np.sqrt(search.accelX**2 + search.accelY**2 + search.accelZ**2)
-        return float(mag.max())
+    def peak_mag(burst: dict) -> float:
+        idx = burst.get("peak_idx")
+        if idx is None:
+            idx = find_peak_index(
+                imu_df,
+                float(burst["timestamp"]),
+                burst.get("span_start"),
+                burst.get("span_end"),
+            )
+        if idx is None:
+            return 0.0
+        return float(_accel_mag_slice(imu_df, idx, idx + 1)[0])
+
+    def anchor(burst: dict) -> float:
+        return float(burst.get("peak_ts", burst["timestamp"]))
+
+    def labels_conflict(a: dict, b: dict) -> bool:
+        la, lb = a["strokeType"], b["strokeType"]
+        return la != "unknown" and lb != "unknown" and la != lb
 
     kept = []
-    skip_next = False
-    for i in range(len(bursts)):
-        if skip_next:
-            skip_next = False
-            continue
+    for i, burst in enumerate(bursts):
         if i + 1 < len(bursts):
-            gap = float(bursts[i + 1]["timestamp"]) - float(bursts[i]["timestamp"])
-            if gap <= slow_window_s:
-                mag_i  = peak_mag(float(bursts[i]["timestamp"]))
-                mag_j  = peak_mag(float(bursts[i + 1]["timestamp"]))
-                if mag_i < weak_ratio * mag_j:
-                    # bursts[i] is a preparation — prefer bursts[i+1]'s label if known
-                    if bursts[i]["strokeType"] != "unknown" and bursts[i + 1]["strokeType"] == "unknown":
-                        bursts[i + 1]["strokeType"] = bursts[i]["strokeType"]
-                    skip_next = True  # drop bursts[i], keep bursts[i+1]
-                    continue
-        kept.append(bursts[i])
-    if not skip_next:
-        kept.append(bursts[-1])
-    elif bursts:
-        kept.append(bursts[-1])
+            gap = anchor(bursts[i + 1]) - anchor(burst)
+            if (gap <= slow_window_s
+                    and not labels_conflict(burst, bursts[i + 1])
+                    and peak_mag(burst) < weak_ratio * peak_mag(bursts[i + 1])):
+                # `burst` is a preparation movement — prefer the next burst's window,
+                # but carry this burst's label over if the next one is unlabeled.
+                if burst["strokeType"] != "unknown" and bursts[i + 1]["strokeType"] == "unknown":
+                    bursts[i + 1]["strokeType"] = burst["strokeType"]
+                continue          # drop `burst`, keep bursts[i + 1]
+        kept.append(burst)
     return kept
 
 
@@ -235,24 +312,132 @@ def extract_window(df: pd.DataFrame, peak_idx: int) -> pd.DataFrame | None:
     return window
 
 
-def find_peak_index(df: pd.DataFrame, marker_ts: float) -> int | None:
-    """Find the DataFrame row index closest to marker_ts, then re-anchor on the
-    actual accelMag maximum within ±20 samples.  The spike detector fires slightly
-    late, so the raw marker timestamp rarely lands on the true IMU peak — without
-    this correction the peak sits at ~sample 50 instead of the intended sample 30."""
+def _accel_mag_slice(df: pd.DataFrame, start: int, end: int) -> np.ndarray:
+    """Acceleration magnitude over df row range [start, end)."""
+    return np.sqrt(
+        df["accelX"].iloc[start:end].values ** 2 +
+        df["accelY"].iloc[start:end].values ** 2 +
+        df["accelZ"].iloc[start:end].values ** 2
+    )
+
+
+def peak_index_in_span(df: pd.DataFrame, t_lo: float, t_hi: float) -> int | None:
+    """Row index of the accelMag maximum inside the time range [t_lo, t_hi]."""
+    if "timestamp" not in df.columns or df.empty:
+        return None
+    start = int((df["timestamp"] - t_lo).abs().idxmin())
+    end   = int((df["timestamp"] - t_hi).abs().idxmin()) + 1
+    start = max(0, start)
+    end   = min(len(df), max(end, start + 1))
+    mag = _accel_mag_slice(df, start, end)
+    if mag.size == 0:
+        return None
+    return start + int(mag.argmax())
+
+
+def find_peak_index(
+    df: pd.DataFrame,
+    marker_ts: float,
+    span_start: float | None = None,
+    span_end: float | None = None,
+    search_pre: float | None = None,
+) -> int | None:
+    """Resolve the row index of the ball contact for a burst.
+
+    The watch spike detector arms on the FIRST sample over threshold, which in padel
+    is the backswing — the real contact peak follows 300-900ms later. So the search
+    runs over the whole burst span plus the follow-through tail, not a fixed window
+    around a single marker.
+
+    When no span is given (background/unknown windows) it falls back to a symmetric
+    ±FALLBACK_PEAK_SEARCH search around marker_ts.
+    """
     if "timestamp" not in df.columns:
         return None
-    coarse = int((df["timestamp"] - marker_ts).abs().idxmin())
 
-    # Search ±20 samples for the true acceleration-magnitude peak
-    search_start = max(0, coarse - 20)
-    search_end   = min(len(df), coarse + 21)
-    mag = np.sqrt(
-        df["accelX"].iloc[search_start:search_end] ** 2 +
-        df["accelY"].iloc[search_start:search_end] ** 2 +
-        df["accelZ"].iloc[search_start:search_end] ** 2
-    )
-    return search_start + int(mag.values.argmax())
+    if span_start is None or span_end is None:
+        t_lo = marker_ts - FALLBACK_PEAK_SEARCH
+        t_hi = marker_ts + FALLBACK_PEAK_SEARCH
+    else:
+        pre = PEAK_SEARCH_PRE if search_pre is None else search_pre
+        t_lo = float(span_start) - pre
+        t_hi = float(span_end) + PEAK_SEARCH_POST
+
+    return peak_index_in_span(df, t_lo, t_hi)
+
+
+def resolve_burst_peaks(
+    bursts: list[dict],
+    df: pd.DataFrame,
+    min_separation: float = MIN_PEAK_SEPARATION,
+    search_pre: float | None = None,
+) -> list[dict]:
+    """Resolve every burst onto its ball-contact peak, then merge bursts that land
+    on the same contact.
+
+    Burst grouping cuts on the FIRST marker of a burst, so a swing with a long
+    preparation ramp can spill past burst_gap and open a second burst that resolves
+    onto the identical peak — one physical stroke, two training windows. This pass
+    collapses those. Each surviving burst gains `peak_idx` and `peak_ts`.
+
+    Two bursts carrying DIFFERENT human labels are never merged. A reviewer who labeled
+    them separately saw two strokes, and their verdict outranks this heuristic — merging
+    would silently rewrite validated data.
+    """
+    resolved = []
+    for b in bursts:
+        idx = find_peak_index(df, float(b["timestamp"]), b.get("span_start"), b.get("span_end"), search_pre)
+        if idx is None:
+            continue
+        b = dict(b)
+        b["peak_idx"] = idx
+        b["peak_ts"]  = float(df["timestamp"].iloc[idx])
+        resolved.append(b)
+
+    resolved.sort(key=lambda b: b["peak_ts"])
+
+    def label_distance(burst: dict, peak_ts: float) -> float:
+        """How far the burst's labeled markers sit from a contact peak."""
+        stamps = burst.get("label_ts") or []
+        if not stamps:
+            return float("inf")
+        return min(abs(t - peak_ts) for t in stamps)
+
+    def labelsConflict(a: dict, b: dict) -> bool:
+        """Both sides carry a human label and the labels disagree."""
+        la, lb = a["strokeType"], b["strokeType"]
+        return la != "unknown" and lb != "unknown" and la != lb
+
+    merged: list[dict] = []
+    for b in resolved:
+        if (merged and b["peak_ts"] - merged[-1]["peak_ts"] < min_separation
+                and not labelsConflict(merged[-1], b)):
+            prev = merged[-1]
+            # Same physical stroke: keep the stronger peak and union the metadata.
+            prev_mag = _accel_mag_slice(df, prev["peak_idx"], prev["peak_idx"] + 1)[0]
+            this_mag = _accel_mag_slice(df, b["peak_idx"], b["peak_idx"] + 1)[0]
+            if this_mag > prev_mag:
+                prev["peak_idx"], prev["peak_ts"] = b["peak_idx"], b["peak_ts"]
+
+            # Label goes to whichever burst put a labeled marker nearest the contact.
+            # Preferring `prev` unconditionally mislabels a hard smash as the softer
+            # stroke that happened to open the earlier burst.
+            if prev["strokeType"] == "unknown":
+                prev["strokeType"] = b["strokeType"]
+                prev["label_ts"]   = b.get("label_ts") or []
+            elif b["strokeType"] != "unknown":
+                peak = prev["peak_ts"]
+                if label_distance(b, peak) < label_distance(prev, peak):
+                    prev["strokeType"] = b["strokeType"]
+                    prev["label_ts"]   = b.get("label_ts") or []
+
+            prev["burst_size"] += b["burst_size"]
+            prev["span_start"] = min(prev["span_start"], b["span_start"])
+            prev["span_end"]   = max(prev["span_end"], b["span_end"])
+            continue
+        merged.append(b)
+
+    return merged
 
 
 def extract_unknown_windows(df: pd.DataFrame, marker_timestamps: list[float]) -> list[pd.DataFrame]:
@@ -360,13 +545,33 @@ def main():
         session_id = session_id_from_meta(meta)
         split      = assign_split(player_id, val_players, test_players)
 
-        # ── Burst grouping + preparation dedup ───────────────────────────────
-        bursts = group_markers_into_bursts(raw_markers, args.burst_gap)
-        before_dedup = len(bursts)
-        bursts = dedup_preparation_bursts(bursts, df)
-        dropped = before_dedup - len(bursts)
-        if dropped:
-            print(f"  Dedup: removed {dropped} preparation-spike bursts")
+        # Ensure required columns exist — peak resolution below reads accel channels
+        missing = [c for c in OUTPUT_COLS if c not in df.columns]
+        if missing:
+            print(f"  SKIP: missing columns {missing}")
+            continue
+
+        # ── Burst grouping → contact-peak resolution → preparation dedup ─────
+        # Recordings from the peak-picking watch build already carry exactly one
+        # marker per swing, stamped at the contact. Grouping or dedup-ing those
+        # deletes real strokes, so both passes are skipped for that format.
+        peak_stamped = markers_are_peak_stamped(raw_markers)
+        burst_gap  = 0.0 if peak_stamped else args.burst_gap
+        search_pre = PEAK_STAMPED_SEARCH_PRE if peak_stamped else None
+
+        bursts = group_markers_into_bursts(raw_markers, burst_gap)
+        before_merge = len(bursts)
+        bursts = resolve_burst_peaks(bursts, df, search_pre=search_pre)
+        collapsed = before_merge - len(bursts)
+        if collapsed:
+            print(f"  Merge: collapsed {collapsed} bursts sharing one contact peak")
+
+        if not peak_stamped:
+            before_dedup = len(bursts)
+            bursts = dedup_preparation_bursts(bursts, df)
+            dropped = before_dedup - len(bursts)
+            if dropped:
+                print(f"  Dedup: removed {dropped} preparation-spike bursts")
         multi  = sum(1 for b in bursts if b["burst_size"] > 1)
 
         burst_stats["total_raw_markers"]   += len(raw_markers)
@@ -375,21 +580,16 @@ def main():
 
         print(
             f"\n[{split.upper()}] {csv_path.name}  player={player_id[:8]}…  "
+            f"markers={'peak' if peak_stamped else 'crossing'}-stamped  "
             f"raw_markers={len(raw_markers)}  bursts={len(bursts)}  multi={multi}"
         )
-
-        # Ensure required columns exist
-        missing = [c for c in OUTPUT_COLS if c not in df.columns]
-        if missing:
-            print(f"  SKIP: missing columns {missing}")
-            continue
 
         # ── Labeled stroke windows ─────────────────────────────────────────────
         labeled_timestamps = []   # used to keep unknown windows away from labeled ones
 
         for burst in bursts:
             stroke_type = str(burst.get("strokeType", "")).strip()
-            ts          = float(burst["timestamp"])
+            ts          = float(burst.get("peak_ts", burst["timestamp"]))
             burst_size  = int(burst["burst_size"])
 
             # Skip unknown — extracted separately below
@@ -399,9 +599,7 @@ def main():
             if ts < 0:
                 continue
 
-            labeled_timestamps.append(ts)
-            peak_idx = find_peak_index(df, ts)
-
+            peak_idx = burst.get("peak_idx")
             if peak_idx is None:
                 rejected += 1
                 continue
@@ -412,6 +610,11 @@ def main():
                 print(f"  REJECT {stroke_type} @{ts:.2f}s (burst_size={burst_size})")
                 continue
 
+            # Record the RESOLVED contact peak, not the marker timestamp — the two can
+            # be up to ~1s apart and downstream tools re-locate windows by peak_ts.
+            peak_ts = float(df["timestamp"].iloc[peak_idx])
+            labeled_timestamps.append(peak_ts)
+
             idx = sum(counters[stroke_type].values())
             if not args.dry_run:
                 out_path = save_window(window, output_root, split, stroke_type, idx)
@@ -420,13 +623,13 @@ def main():
                     "player_id": player_id,
                     "split": split,
                     "stroke_type": stroke_type,
-                    "peak_ts": round(ts, 4),
+                    "peak_ts": round(peak_ts, 4),
                     "burst_size": burst_size,
                     "window_file": str(out_path.relative_to(output_root)),
                 })
 
             counters[stroke_type][split] += 1
-            print(f"  ✓ {stroke_type:<22} @{ts:.2f}s  burst={burst_size}  → {split}")
+            print(f"  ✓ {stroke_type:<22} @{peak_ts:.2f}s  burst={burst_size}  → {split}")
 
         # ── Unknown (background) windows ──────────────────────────────────────
         if not args.no_unknown:
