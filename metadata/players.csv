@@ -8,3 +8,9 @@ p001,,right,left,intermediate,,,,,0,
 20A80EF6-375D-4FCE-AB9B-BAFCBF1A03A6,Enrique,right,right,intermediate,,,,0,0,Patched 2026-05-25: was sharing playerId E168B6E8 with Jose (recorded on Jose's watch/phone). 1 session: 5F78E0C4.
 4812651B-BFD4-4D4C-A03B-5BE88DE33AF7,Javier,right,right,intermediate,,,,0,0,Registered 2026-05-25. Distinct ID (not a Jose collision). 1 session: 65DCD26B.
 62B73338-18A2-4C13-AE72-061AE70AB95C,Jorge,right,right,intermediate,,,,0,0,Patched 2026-05-29: was sharing playerId 553E3AE9 with another account (single-watch workflow). 1 session: 7896B489.
+27F15ACF-1294-5D97-BC1D-186C6FE2ACD3,Adrian,right,right,intermediate,,,,,,"Registered by assign_player_ids.py: recorded on Jose's watch under a shared account id, re-assigned to a distinct player."
+60C9678F-2F65-537B-ADA7-B45D5CC903AD,Carlitos,right,right,intermediate,,,,,,"Registered by assign_player_ids.py: recorded on Jose's watch under a shared account id, re-assigned to a distinct player."
+FAEECC7F-2E8C-5AC0-81AA-54BCB8475409,Daniel,right,right,intermediate,,,,,,"Registered by assign_player_ids.py: recorded on Jose's watch under a shared account id, re-assigned to a distinct player."
+C26FD88A-CDA0-58A9-B64F-E983A40373AA,Edu,right,right,intermediate,,,,,,"Registered by assign_player_ids.py: recorded on Jose's watch under a shared account id, re-assigned to a distinct player."
+A4621B66-1DB2-5B66-B890-65E4CA4AAA4D,Javier S,right,right,intermediate,,,,,,"Registered by assign_player_ids.py: recorded on Jose's watch under a shared account id, re-assigned to a distinct player."
+E168B6E8-2D2B-4998-9428-9B4D26F79A8D,Jose,right,right,intermediate,,,,,,"Registered by assign_player_ids.py: recorded on Jose's watch under a shared account id, re-assigned to a distinct player."
