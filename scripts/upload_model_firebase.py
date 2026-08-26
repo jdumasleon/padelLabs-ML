@@ -2,14 +2,28 @@
 """
 upload_model_firebase.py — PadelLabs ML Toolchain
 ==================================================
-Uploads a trained .mlmodel to Firebase Storage and prints the download URL +
-the two Firebase Remote Config values to set. Firebase replacement for the
-legacy Supabase-based upload_model.py.
+Uploads a trained .mlmodel to Firebase Storage and prints the `ml_stroke_model`
+Remote Config descriptor to publish. Firebase replacement for the legacy
+Supabase-based upload_model.py.
 
-The PadelLabs app (`ModelUpdateService.swift`) downloads the model from whatever
-HTTPS URL is in Remote Config `ml_stroke_model_url` and compares
-`ml_stroke_model_version` by STRING equality — so any stable HTTPS URL works and
-the version is just a label (e.g. "v4").
+The object is uploaded WITHOUT a Firebase download token. That is deliberate: a
+download-token URL bypasses Storage security rules by design — that is what tokens
+are for — so the model it points at is readable by anyone, with no credentials, for
+as long as the token exists. The app now fetches through the Storage SDK instead,
+which carries Firebase Auth and App Check tokens, and `storage.rules` gates
+`ml-models/**` on `request.auth != null`.
+
+The app (`ModelUpdateService.swift`) reads a single JSON key, `ml_stroke_model`:
+
+    {"version": "v5",
+     "storagePath": "ml-models/PadelLabs-StrokeClassifier-v5.mlmodel",
+     "sha256": "<hex>",
+     "format": "mlmodel-v1"}
+
+One object so version, path and hash can never be observed out of step mid-rollout.
+The client verifies the SHA-256 before installing, and skips any `format` it does
+not recognise. Install state is keyed on version AND format, so re-publishing the
+same model in a new artifact shape still triggers a reinstall.
 
 Auth (pick one):
   1. Service account JSON (recommended, reusable):
@@ -24,8 +38,6 @@ Requirements:
 Usage:
     python3 upload_model_firebase.py --version v4
     python3 upload_model_firebase.py --version v4 --bucket padellabs-f40f7.firebasestorage.app
-    python3 upload_model_firebase.py --version v4 --signed-url-days 3650   # 10y signed URL
-    python3 upload_model_firebase.py --version v4 --public                 # public URL (no token)
     python3 upload_model_firebase.py --version v4 --set-remote-config       # also push Remote Config
 """
 
@@ -50,13 +62,8 @@ def main():
     ap = argparse.ArgumentParser(description="Upload CoreML model to Firebase Storage")
     ap.add_argument("--version", required=True, help="Model version, e.g. v4")
     ap.add_argument("--bucket", default=DEFAULT_BUCKET, help="Firebase Storage bucket")
-    ap.add_argument("--public", action="store_true",
-                    help="Make the object public (stable tokenless URL).")
-    ap.add_argument("--signed-url-days", type=int, default=0,
-                    help="If >0, emit a V4 signed URL of this many days (MAX 7 — Google cap). "
-                         "Default 0 = Firebase download-token URL (stable, never expires, token-gated).")
     ap.add_argument("--set-remote-config", action="store_true",
-                    help="Also push ml_stroke_model_version/url to Remote Config via the firebase CLI.")
+                    help="Also publish the ml_stroke_model descriptor to Remote Config.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -88,52 +95,67 @@ def main():
             cred = credentials.Certificate(sa)
         firebase_admin.initialize_app(cred, {"storageBucket": args.bucket})
 
-    import uuid as _uuid
-    from urllib.parse import quote
+    from urllib.parse import quote  # noqa: F401  (kept for callers that build console links)
 
     bucket = storage.bucket()
     blob = bucket.blob(object_path)
     blob.cache_control = "public, max-age=31536000, immutable"
 
-    if args.public:
-        download_token = None
-    else:
-        # Firebase-style stable download token (never expires; URL is token-gated).
-        download_token = str(_uuid.uuid4())
-        blob.metadata = {"firebaseStorageDownloadTokens": download_token}
+    # No `firebaseStorageDownloadTokens` metadata. A download token produces a URL that
+    # bypasses Storage rules entirely, which is what made the classifier world-readable.
+    # Access is now decided by storage.rules + App Check, per request.
+
+    digest = _sha256(model_file)
 
     print("\nUploading…")
     blob.upload_from_filename(str(model_file), content_type="application/octet-stream")
 
-    if args.public:
-        blob.make_public()
-        url = blob.public_url
-        print(f"  Public URL: {url}")
-    elif args.signed_url_days > 0:
-        days = min(args.signed_url_days, 7)  # Google V4 hard cap
-        url = blob.generate_signed_url(expiration=dt.timedelta(days=days), method="GET", version="v4")
-        print(f"  Signed URL ({days}d, expires {(dt.datetime.utcnow()+dt.timedelta(days=days)).date()}): {url}")
-    else:
-        encoded = quote(object_path, safe="")
-        url = (f"https://firebasestorage.googleapis.com/v0/b/{args.bucket}"
-               f"/o/{encoded}?alt=media&token={download_token}")
-        print(f"  Firebase download URL (stable, never expires): {url}")
+    # Clear any token left over from a previous upload of this object; re-uploading does
+    # not remove existing custom metadata on its own, and a stale token keeps working.
+    if blob.metadata and "firebaseStorageDownloadTokens" in blob.metadata:
+        metadata = dict(blob.metadata)
+        metadata.pop("firebaseStorageDownloadTokens", None)
+        blob.metadata = metadata
+        blob.patch()
+        print("  Revoked a pre-existing download token on this object.")
 
+    descriptor = {
+        "version": version,
+        "storagePath": object_path,
+        "sha256": digest,
+        "format": "mlmodel-v1",
+    }
+
+    print(f"  gs://{args.bucket}/{object_path}")
+    print(f"  sha256: {digest}")
     print("\n" + "=" * 70)
-    print("Firebase Remote Config values to set:")
-    print(f"  ml_stroke_model_version = {version}")
-    print(f"  ml_stroke_model_url     = {url}")
+    print("Remote Config — set ml_stroke_model to:")
+    print(json.dumps(descriptor, indent=2))
     print("=" * 70)
 
     if args.set_remote_config:
-        push_remote_config(version, url)
+        push_remote_config(descriptor)
 
 
-def push_remote_config(version: str, url: str):
-    """Update the two keys via the Remote Config REST API using the service-account creds.
+def _sha256(path: Path) -> str:
+    """Streamed so a ~24 MB model is not held in memory twice."""
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def push_remote_config(descriptor: dict):
+    """Publish the ml_stroke_model descriptor via the Remote Config REST API.
 
     Avoids the firebase CLI (which needs a firebase.json with a remoteconfig block).
     Read-modify-write with the ETag (If-Match) the API requires.
+
+    Writes one key. The legacy ml_stroke_model_version / ml_stroke_model_url scalars are
+    deliberately left untouched: they published a download-token URL, and rewriting them
+    would republish that access path.
     """
     import google.auth
     import google.auth.transport.requests
@@ -152,8 +174,13 @@ def push_remote_config(version: str, url: str):
     etag = get.headers.get("ETag", "*")
 
     params = tmpl.setdefault("parameters", {})
-    for key, val in (("ml_stroke_model_version", version), ("ml_stroke_model_url", url)):
-        params.setdefault(key, {})["defaultValue"] = {"value": val}
+    entry = params.setdefault("ml_stroke_model", {})
+    entry["defaultValue"] = {"value": json.dumps(descriptor, separators=(",", ":"))}
+    entry.setdefault("valueType", "JSON")
+    entry.setdefault(
+        "description",
+        "Stroke classifier to install: version, storagePath, sha256, format.",
+    )
 
     put = requests.put(
         base, headers={**headers, "Content-Type": "application/json; UTF-8", "If-Match": etag},
