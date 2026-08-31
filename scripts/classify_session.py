@@ -50,6 +50,27 @@ WINDOW_SIZE  = PRE_PEAK + POST_PEAK   # 100
 
 BURST_GAP    = 1.2   # seconds — same as extract_windows.py
 
+# Peak search span around a burst — MUST match extract_windows.py, otherwise the
+# windows classified here are not the windows the model was trained on.
+PEAK_SEARCH_PRE      = 0.9
+PEAK_SEARCH_POST     = 0.7
+FALLBACK_PEAK_SEARCH = 0.2
+MIN_PEAK_SEPARATION  = 0.6   # bursts resolving closer than this = one physical stroke
+
+# Marker format detection — MUST match extract_windows.py. Recordings from the
+# peak-picking watch build carry one marker per swing stamped at the contact; older
+# ones carry several per swing stamped ~0.8s late. See extract_windows.py for detail.
+PEAK_FORMAT_MAX_SUBGAP_FRACTION = 0.02
+PEAK_FORMAT_MIN_MARKERS = 20
+PEAK_STAMPED_SEARCH_PRE = 0.2
+
+
+def markers_are_peak_stamped(markers: list) -> bool:
+    stamps = sorted(float(m["timestamp"]) for m in markers if float(m.get("timestamp", -1)) >= 0)
+    if len(stamps) < PEAK_FORMAT_MIN_MARKERS:
+        return False
+    return float(np.mean(np.diff(stamps) < MIN_PEAK_SEPARATION)) <= PEAK_FORMAT_MAX_SUBGAP_FRACTION
+
 # ── Feature extraction (identical to retrain.py) ──────────────────────────────
 
 def extract_features(df: pd.DataFrame) -> np.ndarray:
@@ -167,6 +188,41 @@ def train_classifier(exclude_session_id: str | None = None):
 
 # ── Session loading & window extraction ───────────────────────────────────────
 
+def accel_mag_slice(df: pd.DataFrame, start: int, end: int) -> np.ndarray:
+    """Acceleration magnitude over df row range [start, end)."""
+    return np.sqrt(
+        df["accelX"].iloc[start:end].values ** 2 +
+        df["accelY"].iloc[start:end].values ** 2 +
+        df["accelZ"].iloc[start:end].values ** 2
+    )
+
+
+def find_peak_index(df: pd.DataFrame, marker_ts: float,
+                    span_start: float | None = None,
+                    span_end: float | None = None,
+                    search_pre: float | None = None) -> int | None:
+    """Row index of the ball contact for a burst — mirrors extract_windows.py.
+
+    Markers are stamped when classification finishes, so they lag the ball contact by
+    ~0.7-1.0s. The search therefore reaches back PEAK_SEARCH_PRE from the first marker.
+    """
+    if "timestamp" not in df.columns or df.empty:
+        return None
+
+    if span_start is None or span_end is None:
+        t_lo, t_hi = marker_ts - FALLBACK_PEAK_SEARCH, marker_ts + FALLBACK_PEAK_SEARCH
+    else:
+        pre = PEAK_SEARCH_PRE if search_pre is None else search_pre
+        t_lo, t_hi = float(span_start) - pre, float(span_end) + PEAK_SEARCH_POST
+
+    start = max(0, int((df["timestamp"] - t_lo).abs().idxmin()))
+    end   = min(len(df), max(int((df["timestamp"] - t_hi).abs().idxmin()) + 1, start + 1))
+    mag   = accel_mag_slice(df, start, end)
+    if mag.size == 0:
+        return None
+    return start + int(mag.argmax())
+
+
 def group_bursts(markers: list, burst_gap: float = BURST_GAP) -> list:
     """Collapse markers within burst_gap seconds — same logic as extract_windows.py."""
     valid = sorted(
@@ -198,8 +254,58 @@ def group_bursts(markers: list, burst_gap: float = BURST_GAP) -> list:
             "timestamp": float(burst[0]["timestamp"]),
             "strokeType": label,
             "burst_size": len(burst),
+            "span_start": float(burst[0]["timestamp"]),
+            "span_end": float(burst[-1]["timestamp"]),
+            "label_ts": [
+                float(m["timestamp"]) for m in burst
+                if str(m.get("strokeType", "")).strip() == label
+            ],
         })
     return reps
+
+
+def resolve_burst_peaks(bursts: list, df: pd.DataFrame,
+                        min_separation: float = MIN_PEAK_SEPARATION,
+                        search_pre: float | None = None) -> list:
+    """Resolve each burst onto its contact peak and merge bursts sharing one contact.
+    Mirrors extract_windows.resolve_burst_peaks — keep the two in sync."""
+    resolved = []
+    for b in bursts:
+        idx = find_peak_index(df, float(b["timestamp"]), b.get("span_start"), b.get("span_end"), search_pre)
+        if idx is None:
+            continue
+        b = dict(b)
+        b["peak_idx"] = idx
+        b["peak_ts"]  = float(df["timestamp"].iloc[idx])
+        resolved.append(b)
+
+    resolved.sort(key=lambda b: b["peak_ts"])
+
+    def label_distance(burst: dict, peak_ts: float) -> float:
+        stamps = burst.get("label_ts") or []
+        return min((abs(t - peak_ts) for t in stamps), default=float("inf"))
+
+    merged = []
+    for b in resolved:
+        if merged and b["peak_ts"] - merged[-1]["peak_ts"] < min_separation:
+            prev = merged[-1]
+            if accel_mag_slice(df, b["peak_idx"], b["peak_idx"] + 1)[0] > \
+               accel_mag_slice(df, prev["peak_idx"], prev["peak_idx"] + 1)[0]:
+                prev["peak_idx"], prev["peak_ts"] = b["peak_idx"], b["peak_ts"]
+
+            # Label goes to whichever burst put a labeled marker nearest the contact.
+            if prev["strokeType"] == "unknown":
+                prev["strokeType"], prev["label_ts"] = b["strokeType"], b.get("label_ts") or []
+            elif b["strokeType"] != "unknown" and \
+                 label_distance(b, prev["peak_ts"]) < label_distance(prev, prev["peak_ts"]):
+                prev["strokeType"], prev["label_ts"] = b["strokeType"], b.get("label_ts") or []
+
+            prev["burst_size"] += b["burst_size"]
+            prev["span_start"] = min(prev["span_start"], b["span_start"])
+            prev["span_end"]   = max(prev["span_end"], b["span_end"])
+            continue
+        merged.append(b)
+    return merged
 
 
 def dedup_preparation_bursts(
@@ -216,32 +322,27 @@ def dedup_preparation_bursts(
     if len(bursts) <= 1:
         return bursts
 
-    def peak_mag(ts: float) -> float:
-        idx = int((imu_df["timestamp"] - ts).abs().idxmin())
-        window = imu_df.iloc[max(0, idx - 30): idx + 50]
-        mag = np.sqrt(window.accelX**2 + window.accelY**2 + window.accelZ**2)
-        return float(mag.max())
+    def peak_mag(burst: dict) -> float:
+        idx = burst.get("peak_idx")
+        if idx is None:
+            idx = find_peak_index(
+                imu_df, float(burst["timestamp"]),
+                burst.get("span_start"), burst.get("span_end"),
+            )
+        return 0.0 if idx is None else float(accel_mag_slice(imu_df, idx, idx + 1)[0])
 
-    kept, skip_next = [], False
-    for i in range(len(bursts)):
-        if skip_next:
-            skip_next = False
-            continue
+    def anchor(burst: dict) -> float:
+        return float(burst.get("peak_ts", burst["timestamp"]))
+
+    kept = []
+    for i, burst in enumerate(bursts):
         if i + 1 < len(bursts):
-            gap = float(bursts[i + 1]["timestamp"]) - float(bursts[i]["timestamp"])
-            if gap <= slow_window_s:
-                mag_i = peak_mag(float(bursts[i]["timestamp"]))
-                mag_j = peak_mag(float(bursts[i + 1]["timestamp"]))
-                if mag_i < weak_ratio * mag_j:
-                    if bursts[i]["strokeType"] != "unknown" and bursts[i + 1]["strokeType"] == "unknown":
-                        bursts[i + 1]["strokeType"] = bursts[i]["strokeType"]
-                    skip_next = True
-                    continue
-        kept.append(bursts[i])
-    if not skip_next and bursts:
-        kept.append(bursts[-1])
-    elif bursts:
-        kept.append(bursts[-1])
+            gap = anchor(bursts[i + 1]) - anchor(burst)
+            if gap <= slow_window_s and peak_mag(burst) < weak_ratio * peak_mag(bursts[i + 1]):
+                if burst["strokeType"] != "unknown" and bursts[i + 1]["strokeType"] == "unknown":
+                    bursts[i + 1]["strokeType"] = burst["strokeType"]
+                continue          # drop `burst`, keep bursts[i + 1]
+        kept.append(burst)
     return kept
 
 
@@ -264,12 +365,27 @@ def classify_session(csv_path: Path, json_path: Path,
     with open(json_path) as f:
         meta = json.load(f)
 
-    markers = group_bursts(meta.get("markers", []))
-    before = len(markers)
-    markers = dedup_preparation_bursts(markers, df)
-    dropped = before - len(markers)
-    if dropped:
-        print(f"  Dedup: removed {dropped} preparation-spike bursts (weak backswing before strong contact)")
+    raw = meta.get("markers", [])
+    # Peak-stamped recordings (watch build f06e54c onward) already have exactly one
+    # marker per swing at the contact — grouping or dedup-ing them deletes strokes.
+    peak_stamped = markers_are_peak_stamped(raw)
+    print(f"  Markers: {'peak' if peak_stamped else 'crossing'}-stamped ({len(raw)} raw)")
+
+    markers = group_bursts(raw, 0.0 if peak_stamped else BURST_GAP)
+    before_merge = len(markers)
+    markers = resolve_burst_peaks(
+        markers, df, search_pre=PEAK_STAMPED_SEARCH_PRE if peak_stamped else None
+    )
+    collapsed = before_merge - len(markers)
+    if collapsed:
+        print(f"  Merge: collapsed {collapsed} bursts sharing one contact peak")
+
+    if not peak_stamped:
+        before = len(markers)
+        markers = dedup_preparation_bursts(markers, df)
+        dropped = before - len(markers)
+        if dropped:
+            print(f"  Dedup: removed {dropped} preparation-spike bursts (weak backswing before strong contact)")
     if not markers:
         print("[WARN] No markers found in session JSON.")
         return []
@@ -281,14 +397,12 @@ def classify_session(csv_path: Path, json_path: Path,
         ts = m["timestamp"]
         true_label = m["strokeType"]
 
-        # Find nearest sample then re-anchor on actual accelMag peak (±20 samples)
-        if "timestamp" not in df.columns:
-            break
-        coarse = int((df["timestamp"] - ts).abs().idxmin())
-        s0 = max(0, coarse - 20)
-        s1 = min(len(df), coarse + 21)
-        mag_search = np.sqrt(df["accelX"].iloc[s0:s1]**2 + df["accelY"].iloc[s0:s1]**2 + df["accelZ"].iloc[s0:s1]**2)
-        peak_idx = s0 + int(mag_search.values.argmax())
+        # Peak already resolved (and de-duplicated) by resolve_burst_peaks
+        peak_idx = m.get("peak_idx")
+        if peak_idx is None:
+            skipped += 1
+            continue
+        peak_ts = float(m["peak_ts"])
 
         window = extract_window(df, peak_idx)
         if window is None:
@@ -315,7 +429,11 @@ def classify_session(csv_path: Path, json_path: Path,
         final_label = top1_label if above else "unknown"
 
         results.append({
+            # timestamp_s stays the BURST ANCHOR — apply_validation.py matches
+            # reviewer rows back onto markers by this value (±0.03s). peak_ts is
+            # the resolved ball-contact sample the window was actually cut around.
             "timestamp_s":      round(ts, 4),
+            "peak_ts":          round(peak_ts, 4),
             "original_label":   true_label,
             "predicted_stroke": final_label,
             "confidence":       round(top1_conf, 4),
